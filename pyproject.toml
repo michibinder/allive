@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "allive"
+version = "0.1.0"
+description = "Real-time quicklook of the ALIMA lidar on HALO with IFS curtains along the flight plan"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Michael Binder" }]
+dependencies = [
+    "numpy",
+    "scipy>=1.12",
+    "matplotlib>=3.7",
+    "pyproj",
+    "xarray",
+    "pandas",
+    "netCDF4",
+    "cmcrameri",
+]
+
+[project.optional-dependencies]
+download = ["ecmwf-api-client", "eccodes", "cfgrib"]
+test = ["pytest"]
+
+[project.scripts]
+allive = "allive.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+allive = ["*.mplstyle", "*.csv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error::UserWarning"]

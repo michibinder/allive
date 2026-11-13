@@ -1,0 +1,27 @@
+import datetime as dt
+
+
+def utc_now():
+    """Current UTC time as a naive datetime."""
+    return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+
+
+def log_utc(message, out=None):
+    """UTC-stamped line to out (stdout if None) as one flushed write, so threads never splice
+    lines; also the ecmwfapi client logger."""
+    print(f"{utc_now():%Y-%m-%d %H:%M:%S}Z {message}\n", end="", file=out, flush=True)
+
+
+def utc_datetime(seconds):
+    """Naive UTC datetime of a unix time."""
+    return dt.datetime.fromtimestamp(seconds, dt.timezone.utc).replace(tzinfo=None)
+
+
+def utc_seconds(when):
+    """Unix seconds of a datetime; a naive one is read as UTC."""
+    return when.replace(tzinfo=when.tzinfo or dt.timezone.utc).timestamp()
+
+
+def iso_seconds(text):
+    """Unix seconds of an ISO time stamp; one without a zone is read as UTC."""
+    return utc_seconds(dt.datetime.fromisoformat(text))

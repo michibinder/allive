@@ -1,0 +1,49 @@
+font.family : STIXGeneral
+font.serif : cm
+mathtext.fontset : cm
+font.size : 11
+axes.titlesize : 11
+axes.labelsize : 11
+xtick.labelsize : 11
+ytick.labelsize : 11
+text.usetex: False
+
+axes.spines.bottom : True
+axes.spines.top : True
+axes.spines.left : True
+axes.spines.right : True
+axes.linewidth : 1
+axes.facecolor : white
+
+xtick.direction: in
+ytick.direction: in
+
+xtick.top : True
+xtick.bottom : True
+ytick.left : True
+ytick.right : True
+xtick.major.size:    5
+xtick.minor.size:    2.5
+xtick.major.width:   1
+xtick.minor.width:   0.7
+ytick.major.size:    5
+ytick.minor.size:    2.5
+ytick.major.width:   1
+ytick.minor.width:   0.7
+
+xtick.minor.visible: True
+ytick.minor.visible: True
+
+pcolor.shading : auto
+
+lines.linewidth : 0.8
+
+legend.facecolor : white
+
+axes.grid : False
+grid.color : grey
+grid.alpha : 0.2
+grid.linestyle: :
+grid.linewidth : 1
+
+figure.dpi : 100
