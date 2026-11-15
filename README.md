@@ -72,9 +72,13 @@ Further options of `plot`:
 ## The figure
 
 - The rows T, T′ and w are curtains: a time–height panel, a narrow panel with the profiles at the
-  cursor, and a colorbar. IFS is drawn first and ALIMA on top of it. T′ is the temperature after a
+  cursor (IFS green, ALIMA red), and a colorbar. IFS is drawn first and ALIMA on top of it. T′ is the temperature after a
   5th-order Butterworth high-pass in the vertical with a cutoff of 20 km, for ALIMA and IFS alike.
-- The dashed cursor with the aircraft symbol marks the newest measured profile.
+- In a row that shows measurements over the IFS, faded grey contour lines keep the IFS field visible:
+  every 10 K for T, 1 K for T′ and 0.2 m/s for w, solid for positive and dashed for negative values.
+  A line of the flight note names these steps.
+- The dashed cursor marks the newest measured profile, with the aircraft symbol centred on it. The
+  label of the first profile panel gives its time.
 - The rows u and v show wind profiles in small sub-axes at the time of their measurement. Profiles at
   most 15 min apart share one sub-axes, and its legend gives their times. With a flight plan, every
   planned circle ahead of the aircraft shows the IFS profile.

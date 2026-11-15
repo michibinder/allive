@@ -21,6 +21,7 @@ WAYPOINT = '<Waypoint flightlevel="{2}" lat="{1}" location="W" lon="{0}"><Commen
 STRIDE = 1
 LEVEL_STEP_M = STRIDE * stream.DZ_M
 TEMPERATURE_K = 250.0
+HOURLY_WARMING_K = 10.0
 SURFACE_PRESSURE_PA = 1.0e5
 
 
@@ -109,7 +110,8 @@ def test_wind_layout():
 
 
 def write_ifs(cfg):
-    """Write a tiny isothermal IFS file pair under the names the config expects."""
+    """Write a tiny IFS file pair under the names the config expects: isothermal columns that warm by
+    HOURLY_WARMING_K per step, so that the temperature row has a contour line to draw."""
     north, west, south, east = (float(v) for v in cfg["area"].split("/"))
     times = [BASE + dt.timedelta(hours=h) for h in cfg["steps"]]
     coords = {"level": np.arange(1.0, 138.0), "latitude": np.linspace(south, north, 3),
@@ -118,6 +120,7 @@ def write_ifs(cfg):
     ml = xr.Dataset({name: (("time", "level", "latitude", "longitude"), np.full(shape, value, "float32"))
                      for name, value in (("t", TEMPERATURE_K), ("w", 0.0), ("u", 0.0), ("v", 0.0))},
                     {"time": times, **coords})
+    ml["t"] = ml["t"] + HOURLY_WARMING_K * xr.DataArray(np.arange(len(times), dtype="float32"), dims="time")
     p_times = [BASE, *times]
     p_coords = {**coords, "level": [1.0], "time": p_times}
     p_shape = (len(p_times), 1, 3, 3)

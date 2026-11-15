@@ -46,35 +46,35 @@ CELL_NOTE_CHARS = 34
 NOTE_OFFSET_PT = 18.0
 AIRCRAFT_ICON = "✈"
 ICON_MARGIN_FRACTION = 0.07
-ICON_SIDE_INSET_PT = 15.0
+ICON_SIDE_INSET_PT = 10.0
 ICON_KW = {"fontsize": 22, "fontname": "DejaVu Sans", "ha": "center", "va": "center", "color": "black",
            "zorder": 6, "path_effects": [patheffects.withStroke(linewidth=2.5, foreground="white")]}
 CURTAIN_LABEL_X = style.XLBL / 2.0
 PANEL_LETTER_PAD_PT = (12.0, style.PANEL_LABEL_PAD_PT)
 PROFILE_FONTSIZE = 7
-PROFILE_LEGEND_KW = {"fontsize": PROFILE_FONTSIZE, "framealpha": 0.9, "handlelength": 1.4}
-WIND_LEGEND_KW = {**PROFILE_LEGEND_KW, "loc": "upper left", "handlelength": 1.0, "handletextpad": 0.5,
-                  "borderpad": 0.3, "borderaxespad": 0.3, "framealpha": 1.0}
+WIND_LEGEND_KW = {"fontsize": PROFILE_FONTSIZE, "loc": "upper left", "handlelength": 1.0,
+                  "handletextpad": 0.5, "borderpad": 0.3, "borderaxespad": 0.3, "framealpha": 1.0}
 PROFILE_TICK_PAD_PT = -14.0
-PROFILE_LEGEND_AREA = (0.0, 0.08, 1.0, 0.74)
 PROFILE_TICK_BOX = {"boxstyle": "square,pad=0.1", "facecolor": "white", "edgecolor": "none",
                     "alpha": 0.8}
 ZERO_LINE_KW = {"color": "0.6", "lw": 0.6, "zorder": 1}
+CONTOUR_KW = {"colors": "0.55", "linewidths": 0.6, "alpha": 0.6, "negative_linestyles": "dashed",
+              "zorder": 2}
 WIND_CMAP = style.vik_white_cmap()
 FIELDS = {
     "t": {"file": "T.txt", "label": "temperature", "cbar": "temperature / K",
           "cmap": TEMP_CMAP, "clim": TEMP_CLIM, "step": 20.0, "primes": False, "zero_line": False,
-          "curtain": True},
+          "curtain": True, "contours": (10.0, "K (T)")},
     "tp": {"file": "T.txt",
            "label": rf"$\mathbf{{T'}}$ ($\boldsymbol{{\lambda_z}} <$ {VERT_CUTOFF_KM:.0f} km)",
            "cbar": r"$T'$ / K", "cmap": PERT_CMAP, "clim": PERT_CLIM, "step": 10.0,
-           "primes": True, "zero_line": False, "curtain": True},
-    "w": {"file": "w.txt", "label": "vertical wind", "cbar": r"$w$ / m$\,$s$^{-1}$",
+           "primes": True, "zero_line": False, "curtain": True, "contours": (1.0, "K (T′)")},
+    "w": {"file": "w.txt", "label": r"$\mathbf{w}$", "cbar": r"$w$ / m$\,$s$^{-1}$",
           "cmap": WIND_CMAP, "clim": (-4.0, 4.0), "step": 2.0, "primes": False,
-          "zero_line": True, "curtain": True},
-    "u": {"file": "u.txt", "label": r"zonal wind / m$\,$s$^{\mathbf{-1}}$", "clim": (-100.0, 100.0),
+          "zero_line": True, "curtain": True, "contours": (0.2, "m/s (w)")},
+    "u": {"file": "u.txt", "label": r"$\mathbf{u}$ / m$\,$s$^{\mathbf{-1}}$", "clim": (-100.0, 100.0),
           "step": 50.0, "primes": False, "curtain": False},
-    "v": {"file": "v.txt", "label": r"meridional wind / m$\,$s$^{\mathbf{-1}}$", "clim": (-100.0, 100.0),
+    "v": {"file": "v.txt", "label": r"$\mathbf{v}$ / m$\,$s$^{\mathbf{-1}}$", "clim": (-100.0, 100.0),
           "step": 50.0, "primes": False, "curtain": False},
 }
 
@@ -109,6 +109,28 @@ def draw_curtain(ax, curtain, spec):
     z_edges = np.append(z_km - half, z_km[-1] + half)
     ax.pcolormesh(seconds_to_num(x_edges), z_edges, values, shading="flat", rasterized=True,
                   cmap=spec["cmap"], vmin=spec["clim"][0], vmax=spec["clim"][1])
+
+
+def has_contours(spec, panel):
+    """True for a row that shows measurements over an IFS curtain and so draws the IFS contour lines."""
+    return "contours" in spec and "IFS" in panel and "ALIMA" in panel
+
+
+def contour_key(layers):
+    """Blocks of note lines that explain the IFS contour lines of the rows that draw them."""
+    steps = ["{:g} {}".format(*FIELDS[key]["contours"]) for key, panel in layers.items()
+             if has_contours(FIELDS[key], panel)]
+    return [(f"grey lines: IFS in steps of {', '.join(steps)}",)] if steps else []
+
+
+def draw_contours(ax, curtain, spec):
+    """Faded grey contour lines of a curtain at the multiples of the field's contour step except zero:
+    solid for positive, dashed for negative values."""
+    data = np.ma.masked_invalid(curtain["data"].T)
+    levels = inner_ticks(data.min(), data.max(), spec["contours"][0])
+    levels = levels[levels != 0.0]
+    if levels.size:
+        ax.contour(seconds_to_num(curtain["time"]), curtain["z"] / 1000.0, data, levels=levels, **CONTOUR_KW)
 
 
 def step_ticks(low, high, step):
@@ -350,20 +372,19 @@ def draw_profiles(ax, layers, spec, cursor_s, zlim_km):
     shown = []
     for source, curtain in layers.items():
         i = nearest_row(curtain, cursor_s)
-        ax.plot(curtain["data"][i], curtain["z"] / 1000.0, color=SOURCE_COLORS[source], lw=PROF_LW,
-                label=profile_label(source, [curtain["time"][i]], "%H:%M"))
+        ax.plot(curtain["data"][i], curtain["z"] / 1000.0, color=SOURCE_COLORS[source], lw=PROF_LW)
         shown.append(shown_values(curtain, i, zlim_km))
     if spec["zero_line"]:
         ax.axvline(0.0, **ZERO_LINE_KW)
     style_profile_ticks(ax, *profile_limits(shown, spec), spec["step"])
-    if layers:
-        ax.legend(loc="best", bbox_to_anchor=PROFILE_LEGEND_AREA, **PROFILE_LEGEND_KW)
 
 
 def draw_curtain_row(ax, profile_ax, panel, spec, view):
-    """Curtain layers, colorbar and cursor profiles of one quantity."""
+    """Curtain layers, IFS contour lines over measurements, colorbar and cursor profiles of one quantity."""
     for curtain in panel.values():
         draw_curtain(ax, curtain, spec)
+    if has_contours(spec, panel):
+        draw_contours(ax, panel["IFS"], spec)
     if not panel:
         empty_panel(ax, NO_DATA_NOTE)
     add_colorbar(profile_ax.inset_axes(COLORBAR_BOUNDS), spec)
@@ -487,10 +508,9 @@ def draw_rows(fig, layers, view, wind):
         draw_row(panels, key, panel, view, wind)
         if not curtain:
             wind_rows.append((panels[0], grid[row, 1]))
+        marks = [style.add_panel_label(ax, next(letters), PANEL_LETTER_PAD_PT) for ax in panels]
         if key == first_curtain and view["cursor_s"] is not None:
-            style.add_corner_label(panels[1], f"{utc_datetime(view['cursor_s']):%H:%M} UTC")
-        for ax in panels:
-            style.add_panel_label(ax, next(letters), PANEL_LETTER_PAD_PT)
+            style.add_mirrored_label(panels[1], f"{utc_datetime(view['cursor_s']):%H:%M} UTC", marks[1])
         panels[0].tick_params(labelbottom=row == len(layers) - 1, labeltop=row == 0 and curtain)
     panels[0].set_xlabel(date_label(*view["xlim_s"]))
     return top, wind_rows

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from allive.figure import FIELDS, cell_edges, render
+from allive.figure import FIELDS, cell_edges, contour_key, render
 from allive.filters import vertical_primes
 from allive.ifs import downloaded_config, flight_config, virtual_curtains
 from allive.mars import netcdf_files
@@ -18,7 +18,7 @@ from allive.track import circle_times, merge_fixes, planned_flight, read_flight_
 from allive.utc import log_utc, utc_datetime, utc_seconds
 
 IFS_VARIABLES = {"T.txt": "t", "w.txt": "w", "u.txt": "u", "v.txt": "v"}
-TIME_MARGIN = 0.01
+TIME_MARGIN = 0.02
 ZLIM_FALLBACK_KM = (15.0, 90.0)
 ZLIM_STEP_KM = 5.0
 DEFAULT_WATCH_S = 60.0
@@ -202,7 +202,8 @@ def process(payloads, args):
     cursor_s = cursor_time(args.time, xlim_s, latest, track) if has_data else None
     view = {"xlim_s": xlim_s, "zlim_km": zlim_km, "cursor_s": cursor_s,
             "aircraft_km": aircraft_altitude_km(fixes if track is None else track, cursor_s)}
-    path = render(layers, view, circles_s, (note, measurement_note(latest)), output_path(args, stamp))
+    notes = (note and note + contour_key(layers), measurement_note(latest))
+    path = render(layers, view, circles_s, notes, output_path(args, stamp))
     log_utc(f"saved {path}")
 
 
