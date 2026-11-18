@@ -64,6 +64,7 @@ def test_flight_plan_to_track(tmp_path):
     assert circles.size == 1 and planned["time"][0] < circles[0] < planned["time"][-1]
     plan_data = track.read_flight_plan(plan)
     assert track.waypoint_labels(plan_data) == ["EDMO", "1", "2", "3", "4", "5", "6", "EDMO"]
+    assert track.waypoint_labels({"name": ["MAH", "5000N01150E", "4730N01610E"]}) == ["MAH", "1", "2"]
     kml = tmp_path / "plan.kml"
     kml.write_text(KML.format("\n".join(KML_POINT.format(*point) for point in KML_POINTS)))
     route = track.read_flight_plan(kml)

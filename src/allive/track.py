@@ -1,3 +1,4 @@
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -23,6 +24,7 @@ MIN_TURN_DEG = 35.0
 MIN_TURN_ALTITUDE_M = 7000.0
 TURN_MERGE_S = 600.0
 UNPLANNED_LABEL = "•"
+COORDINATE_NAME = re.compile(r"\d{2,4}(\.\d+)?[NS]\d{3,5}(\.\d+)?[EW]")
 FLIGHT_PLAN_SUFFIXES = (".ftml", ".kml")
 
 
@@ -66,8 +68,10 @@ def read_flight_plan(path):
 
 
 def waypoint_labels(plan):
-    """Label of every waypoint as the Mission Support System shows it: its name, else its index."""
-    return [name or str(index) for index, name in enumerate(plan["name"])]
+    """Label of every waypoint as the Mission Support System shows it: its name, else its index; a name
+    that only spells out coordinates counts as none."""
+    return [str(index) if not name or COORDINATE_NAME.fullmatch(name) else name
+            for index, name in enumerate(plan["name"])]
 
 
 def leg_geometry(plan):

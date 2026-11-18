@@ -94,7 +94,8 @@ Further options of `plot`:
   - Planned waypoints are grey. They are shown only ahead of the aircraft, at times estimated from the
     progress along the plan.
   - Labels: a planned waypoint carries its name, or its number counted from 0 if it has none, as in the
-    Mission Support System. A turn within 30 km of a planned waypoint is that waypoint; any other turn
+    Mission Support System. A name that only spells out coordinates, such as 5000N01150E, counts as
+    none. A turn within 30 km of a planned waypoint is that waypoint; any other turn
     is "•". Without a flight plan the turns are numbered 1, 2, ...
   - Labels that would overlap the previous one are hidden, the ticks and lines stay.
 - The corner right of the wind rows gives the take-off time and the name of the flight plan and, while
