@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from allive import paths, track
-from allive.utc import log_utc, utc_datetime
+from allive.utc import log_utc, time_clusters, utc_datetime
 
 SOURCE_URL = "https://wavecloud.pa.dlr.de/lidar/"
 FETCH_TIMEOUT_S = 20.0
@@ -17,6 +17,7 @@ MAX_STRIDE = 100
 UNIX_MS_THRESHOLD = 1.0e11
 UNIX_S_RANGE = (1.0e9, 4.0e9)
 FLIGHT_WINDOW_PAD_S = 10800.0
+FLIGHT_GAP_S = 7200.0
 MIN_LEVEL_FRACTION = 0.02
 VALID_RANGE = {"T.txt": (100.0, 400.0), "w.txt": (-100.0, 100.0), "u.txt": (-300.0, 300.0),
                "v.txt": (-300.0, 300.0)}
@@ -171,10 +172,20 @@ def profile_count(parsed):
     return sum(raw["time"].size for raw in parsed.values() if raw is not None)
 
 
+def window_end(parsed, start_s, end_s):
+    """end_s moved on to the newest profile of every run (no gap over FLIGHT_GAP_S) overlapping the window."""
+    times = np.unique(np.concatenate([raw["time"] for raw in parsed.values() if raw is not None] or [[]]))
+    for run in time_clusters(times, FLIGHT_GAP_S):
+        if times[run[0]] <= end_s and times[run[-1]] >= start_s:
+            end_s = max(end_s, times[run[-1]])
+    return end_s
+
+
 def flight_profiles(parsed, planned):
-    """The profiles measured within FLIGHT_WINDOW_PAD_S of the planned flight."""
+    """The profiles within FLIGHT_WINDOW_PAD_S of the planned flight, the window end moved on by
+    window_end."""
     start_s = planned["time"][0] - FLIGHT_WINDOW_PAD_S
-    end_s = planned["time"][-1] + FLIGHT_WINDOW_PAD_S
+    end_s = window_end(parsed, start_s, planned["time"][-1] + FLIGHT_WINDOW_PAD_S)
     kept = {name: in_window(raw, start_s, end_s) for name, raw in parsed.items()}
     dropped = profile_count(parsed) - profile_count(kept)
     if dropped:

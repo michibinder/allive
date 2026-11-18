@@ -16,7 +16,7 @@ from scipy.optimize import isotonic_regression
 
 from allive import style
 from allive.filters import VERT_CUTOFF_KM
-from allive.utc import utc_datetime
+from allive.utc import time_clusters, utc_datetime
 
 TEMP_CLIM = (190.0, 280.0)
 TEMP_CMAP = "turbo"
@@ -206,12 +206,6 @@ def shown_values(curtain, row, zlim_km):
     return curtain["data"][row][(z_km >= zlim_km[0]) & (z_km <= zlim_km[1])]
 
 
-def time_clusters(times, gap=WIND_GROUP_GAP_S):
-    """Index arrays of the runs of sorted times (or grid rows) whose neighbours lie at most gap apart."""
-    parts = np.split(np.arange(times.size), np.flatnonzero(np.diff(times) > gap) + 1)
-    return [part for part in parts if part.size]
-
-
 def group_profiles(panel, time_s, rows):
     """[(source, curtain, row)] of one group: the IFS profile nearest its time, then the ALIMA ones."""
     found = [("IFS", panel["IFS"], nearest_row(panel["IFS"], time_s))] if "IFS" in panel else []
@@ -227,11 +221,11 @@ def wind_groups(panel, circles_s, xlim_s):
         seen = np.isfinite(curtain["data"]).any(axis=1)
         rows = np.flatnonzero(seen & (curtain["time"] >= xlim_s[0]) & (curtain["time"] <= xlim_s[1]))
         measured = curtain["time"][rows]
-        found += [(measured[part].mean(), rows[part]) for part in time_clusters(measured)]
+        found += [(measured[part].mean(), rows[part]) for part in time_clusters(measured, WIND_GROUP_GAP_S)]
     if "IFS" in panel:
         planned = np.sort([t for t in circles_s if xlim_s[0] <= t <= xlim_s[1]
                            and np.all(np.abs(measured - t) > WIND_GROUP_GAP_S)])
-        found += [(planned[part].mean(), []) for part in time_clusters(planned)]
+        found += [(planned[part].mean(), []) for part in time_clusters(planned, WIND_GROUP_GAP_S)]
     return sorted(({"time": t, "profiles": group_profiles(panel, t, rows)} for t, rows in found),
                   key=lambda group: group["time"])
 

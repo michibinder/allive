@@ -1,5 +1,7 @@
 import datetime as dt
 
+import numpy as np
+
 
 def utc_now():
     """Current UTC time as a naive datetime."""
@@ -25,3 +27,9 @@ def utc_seconds(when):
 def iso_seconds(text):
     """Unix seconds of an ISO time stamp; one without a zone is read as UTC."""
     return utc_seconds(dt.datetime.fromisoformat(text))
+
+
+def time_clusters(times, gap):
+    """Index arrays of the runs of sorted times (or grid rows) whose neighbours lie at most gap apart."""
+    parts = np.split(np.arange(times.size), np.flatnonzero(np.diff(times) > gap) + 1)
+    return [part for part in parts if part.size]

@@ -54,7 +54,11 @@ allive download plans/flight.ftml --departure 2026-11-15T15:30
 - `--flight` with `--departure` (UTC) adds the planned track: the IFS curtains, the aircraft altitude
   and the planned wind circles. `--speed` sets the ground speed (default 230 m/s). The flight plan is
   an FTML file (waypoints with flight levels, as written by the Mission Support System) or a KML file;
-  from a KML the named points are read in file order, with border crossings left out.
+  from a KML the named points are read in file order, with border crossings left out. Only the profiles
+  of that flight are drawn: from 3 h before the planned start to 3 h after the planned end, and on to the
+  newest profile of any run of profiles (no gap over 2 h) that reaches into this window. A flight longer
+  than planned is so drawn to its end; another flight in the same files stays out unless it reaches into
+  this window or follows within 2 h.
 - `plan` prints the MARS requests of a flight and the time their data are released. It sends nothing.
   `download` sends the requests and converts the result. Both take `--base 2026-11-13T00` to choose
   the forecast run.

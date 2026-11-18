@@ -5,7 +5,8 @@ import pytest
 import xarray as xr
 
 from allive import cli, ifs, levels, mars, stream, track
-from allive.figure import spread_centres, time_clusters
+from allive.figure import spread_centres
+from allive.utc import time_clusters
 
 DEPARTURE = "2026-11-10T05:30"
 DEPARTURE_S = dt.datetime.fromisoformat(DEPARTURE).replace(tzinfo=dt.timezone.utc).timestamp()
@@ -121,7 +122,7 @@ def test_forecast_request(monkeypatch):
 
 
 def test_stream_formats():
-    """Line layouts, repeated timestamps, unterminated lines and invalid values."""
+    """Line layouts, repeated timestamps, unterminated lines, invalid values and the flight window."""
     when = 1794289322
     meta, heights, values = stream.parse_line(line(when, 49.0, 10.2, 10000, [200, 201, 202]))
     assert heights is None and list(values) == [200, 201, 202] and meta[4] == STRIDE
@@ -136,6 +137,10 @@ def test_stream_formats():
     bad = stream.parse_profiles(line(when, 49.0, 10.2, 10000, [250, 0.0, 251, -999, 252, 500, 253, 254]))
     data = stream.build_curtain(bad, stream.VALID_RANGE["T.txt"], False)["data"][0]
     assert list(np.isnan(data)) == [False, True, False, True, False, True, False, False]
+    flight = b"".join(line(when + s, 49.0, 10.2, 10000, [1]) for s in (0, 7000, 14000, 21201))
+    parsed = {**dict.fromkeys(stream.VALID_RANGE), "T.txt": stream.parse_profiles(flight)}
+    kept = stream.flight_profiles(parsed, {"time": np.array([when, when + 1000.0])})
+    assert list(kept["T.txt"]["time"] - when) == [0, 7000, 14000]
 
 
 def test_wind_layout():
@@ -147,7 +152,7 @@ def test_wind_layout():
         centres = spread_centres(times, width, xlim)
         assert np.all(np.diff(centres) >= width - 1e-6)
         assert centres[0] >= xlim[0] + width / 2 - 1e-6 and centres[-1] <= xlim[1] - width / 2 + 1e-6
-    clusters = time_clusters(np.array([0.0, 800.0, 1600.0, 3000.0, 3500.0]))
+    clusters = time_clusters(np.array([0.0, 800.0, 1600.0, 3000.0, 3500.0]), 1000.0)
     assert [list(c) for c in clusters] == [[0, 1, 2], [3, 4]]
 
 
