@@ -11,7 +11,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 from matplotlib import patheffects
 from matplotlib.cm import ScalarMappable
-from matplotlib.colors import Normalize
+from matplotlib.colors import BoundaryNorm, Normalize
 from matplotlib.transforms import Bbox
 from scipy.optimize import isotonic_regression
 
@@ -21,10 +21,11 @@ from allive.utc import utc_datetime
 
 TEMP_CLIM = (190.0, 280.0)
 TEMP_CMAP = "turbo"
-PERT_CLIM = (-25.0, 25.0)
+PERT_LEVELS = (-32.0, -16.0, -8.0, -4.0, -2.0, -1.0, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
+PERT_CBAR_TICKS = (-16.0, -4.0, -1.0, 1.0, 4.0, 16.0)
 PERT_CMAP = style.wave_cmap()
 PROF_LW = 1.1
-CURSOR_KW = {"color": "black", "lw": 0.9, "ls": "--", "zorder": 5}
+CURSOR_KW = {"color": "black", "lw": 1.8, "ls": "--", "zorder": 5}
 MAX_PROFILE_WIDTH_S = 300.0
 FIGURE_WIDTH_IN = 13.0
 PANEL_HEIGHT_IN = 3.0
@@ -52,8 +53,14 @@ ICON_KW = {"fontsize": 22, "fontname": "DejaVu Sans", "ha": "center", "va": "cen
 CURTAIN_LABEL_X = style.XLBL / 2.0
 PANEL_LETTER_PAD_PT = (12.0, style.PANEL_LABEL_PAD_PT)
 PROFILE_FONTSIZE = 7
-WIND_LEGEND_KW = {"fontsize": PROFILE_FONTSIZE, "loc": "upper left", "handlelength": 1.0,
-                  "handletextpad": 0.5, "borderpad": 0.3, "borderaxespad": 0.3, "framealpha": 1.0}
+WAYPOINT_ZORDER = 4
+WAYPOINT_TICK_KW = {"colors": "0.4", "linewidths": 0.5, "zorder": WAYPOINT_ZORDER}
+WAYPOINT_LINE_KW = {"linewidths": 0.6, "linestyles": ":", "zorder": WAYPOINT_ZORDER}
+WAYPOINT_COLORS = {True: "black", False: "0.5"}
+WAYPOINT_GAP_PT = 2.0
+WAYPOINT_BOX = {"boxstyle": "round,pad=0.2", "facecolor": "white", "linewidth": 0.5}
+WIND_LEGEND_KW = {"fontsize": PROFILE_FONTSIZE, "loc": "lower left", "handlelength": 1.0,
+                  "handletextpad": 0.5, "borderpad": 0.3, "borderaxespad": 1.0, "framealpha": 1.0}
 PROFILE_TICK_PAD_PT = -14.0
 PROFILE_TICK_BOX = {"boxstyle": "square,pad=0.1", "facecolor": "white", "edgecolor": "none",
                     "alpha": 0.8}
@@ -67,7 +74,8 @@ FIELDS = {
           "curtain": True, "contours": (10.0, "K (T)")},
     "tp": {"file": "T.txt",
            "label": rf"$\mathbf{{T'}}$ ($\boldsymbol{{\lambda_z}} <$ {VERT_CUTOFF_KM:.0f} km)",
-           "cbar": r"$T'$ / K", "cmap": PERT_CMAP, "clim": PERT_CLIM, "step": 10.0,
+           "cbar": r"$T'$ / K", "cmap": PERT_CMAP, "clim": (PERT_LEVELS[0], PERT_LEVELS[-1]),
+           "levels": PERT_LEVELS, "cbar_ticks": PERT_CBAR_TICKS, "step": 16.0,
            "primes": True, "zero_line": False, "curtain": True, "contours": (1.0, "K (T′)")},
     "w": {"file": "w.txt", "label": r"$\mathbf{w}$", "cbar": r"$w$ / m$\,$s$^{-1}$",
           "cmap": WIND_CMAP, "clim": (-4.0, 4.0), "step": 2.0, "primes": False,
@@ -96,6 +104,14 @@ def seconds_to_num(seconds):
     return mdates.date2num(millis.astype("datetime64[ms]"))
 
 
+def colour_norm(spec):
+    """Colour norm of a curtain field: the bins between its levels when it has some, else linear between
+    its colour limits."""
+    if "levels" in spec:
+        return BoundaryNorm(spec["levels"], plt.get_cmap(spec["cmap"]).N, clip=True)
+    return Normalize(*spec["clim"])
+
+
 def draw_curtain(ax, curtain, spec):
     """One pcolormesh of the curtain with transparent gaps between non-contiguous profiles."""
     left, right = cell_edges(curtain["time"])
@@ -108,7 +124,7 @@ def draw_curtain(ax, curtain, spec):
     half = curtain["dz"] / 2000.0
     z_edges = np.append(z_km - half, z_km[-1] + half)
     ax.pcolormesh(seconds_to_num(x_edges), z_edges, values, shading="flat", rasterized=True,
-                  cmap=spec["cmap"], vmin=spec["clim"][0], vmax=spec["clim"][1])
+                  cmap=spec["cmap"], norm=colour_norm(spec))
 
 
 def has_contours(spec, panel):
@@ -121,6 +137,11 @@ def contour_key(layers):
     steps = ["{:g} {}".format(*FIELDS[key]["contours"]) for key, panel in layers.items()
              if has_contours(FIELDS[key], panel)]
     return [(f"grey lines: IFS in steps of {', '.join(steps)}",)] if steps else []
+
+
+def waypoint_key(waypoints):
+    """Blocks of note lines that explain the colours of the waypoint marks when some are planned."""
+    return [("waypoints: black flown, grey planned",)] if not waypoints["measured"].all() else []
 
 
 def draw_contours(ax, curtain, spec):
@@ -238,15 +259,15 @@ def half_range(groups, spec, zlim_km):
 
 
 def wind_layout(layers, circles_s, view):
-    """Sub-axes width in s, the half x range common to all sub-axes and the placed groups of every
-    wind row."""
+    """Sub-axes width in s, the half x range common to all sub-axes, the placed groups of every wind
+    row and the row that carries the legends (the first)."""
     xlim_s = view["xlim_s"]
     width = WIND_INSET_FRACTION * (xlim_s[1] - xlim_s[0])
     rows = {key: place_groups(wind_groups(panel, circles_s, xlim_s), width, xlim_s)
             for key, panel in layers.items() if not FIELDS[key]["curtain"]}
     half = max((half_range(groups, FIELDS[key], view["zlim_km"]) for key, groups in rows.items()),
                default=0.0)
-    return {"width_s": width, "half": half, "rows": rows}
+    return {"width_s": width, "half": half, "rows": rows, "legend_row": next(iter(rows), None)}
 
 
 def profile_label(source, times_s, fmt):
@@ -287,40 +308,41 @@ def style_wind_inset(inset, half, step):
         spine.set_visible(False)
 
 
-def anchor_legend(legend, axes, x):
-    """Anchor the upper left corner of a legend at x (axes fraction) on the bottom of the label band."""
-    legend.set_bbox_to_anchor((x, LABEL_BAND_BOTTOM), transform=axes.transAxes)
-
-
 def add_wind_legend(inset):
-    """Compact legend right of a sub-axes, outside the layout; arrange_legends settles its place."""
-    legend = inset.legend(**WIND_LEGEND_KW)
-    anchor_legend(legend, inset, 1.0)
-    legend.set_in_layout(False)
+    """Compact legend of a sub-axes, outside the layout; arrange_legends settles its place."""
+    inset.legend(**WIND_LEGEND_KW).set_in_layout(False)
 
 
-def legend_start(inset, limit, edges, renderer):
-    """(display x where the legend of a sub-axes starts, True when it lies on the sub-axes): right of the
-    sub-axes when it ends before limit, else centred on it and kept inside the panel edges."""
+def legend_start(inset, edges, renderer):
+    """Display x where the legend of a sub-axes starts: centred on it and kept inside the panel edges."""
     pad = renderer.points_to_pixels(WIND_LEGEND_KW["borderaxespad"] * WIND_LEGEND_KW["fontsize"])
     width = inset.get_legend().get_window_extent(renderer).width + 2.0 * pad
-    x0, x1 = inset.bbox.x0, inset.bbox.x1
-    if x1 + width <= limit:
-        return x1, False
-    return float(np.clip((x0 + x1 - width) / 2.0, edges[0], edges[1] - width)), True
+    return float(np.clip((inset.bbox.x0 + inset.bbox.x1 - width) / 2.0, edges[0], edges[1] - width))
+
+
+def place_legend(ax, legend, x, y, renderer):
+    """Anchor the lower left corner of a legend at the display point (x, y) of a panel and return the
+    box it then has."""
+    legend.set_bbox_to_anchor(ax.transAxes.inverted().transform((x, y)), transform=ax.transAxes)
+    return legend.get_window_extent(renderer)
 
 
 def arrange_legends(ax, renderer):
-    """Legend of every sub-axes of a wind panel right of it, or see-through on it where it does not fit
-    before the next sub-axes or the panel edge."""
-    insets = ax.child_axes
+    """Legend of every sub-axes of a wind panel at its lower centre: above a text of the panel it would
+    cover (the aircraft symbol), see-through where a profile runs under it."""
     edges = (ax.bbox.x0, ax.bbox.x1)
-    limits = [inset.bbox.x0 for inset in insets[1:]] + [edges[1]]
-    for inset, limit in zip(insets, limits):
-        start, on_axes = legend_start(inset, limit, edges, renderer)
-        anchor_legend(inset.get_legend(), ax, (start - edges[0]) / ax.bbox.width)
-        if on_axes:
-            inset.get_legend().get_frame().set_alpha(SEE_THROUGH_ALPHA)
+    texts = [text.get_window_extent(renderer) for text in ax.texts if text.get_visible()]
+    for inset in ax.child_axes:
+        legend = inset.get_legend()
+        if legend is None:
+            continue
+        x = legend_start(inset, edges, renderer)
+        box = place_legend(ax, legend, x, ax.bbox.y0, renderer)
+        covered = [text.y1 for text in texts if text.overlaps(box)]
+        if covered:
+            box = place_legend(ax, legend, x, max(covered), renderer)
+        if any(crosses(box, line) for line in inset.get_legend_handles_labels()[0]):
+            legend.get_frame().set_alpha(SEE_THROUGH_ALPHA)
 
 
 def crosses(box, line):
@@ -341,26 +363,48 @@ def see_through_labels(ax, renderer):
             patch.set_facecolor((1.0, 1.0, 1.0, SEE_THROUGH_ALPHA))
 
 
-def finish_wind_panels(fig, axes):
-    """Lay the figure out and keep that layout, then place the legends of the wind panels and make
-    their labels see-through where needed."""
+def freeze_layout(fig):
+    """Lay the figure out, keep that layout and return the renderer."""
     fig.draw_without_rendering()
     fig.set_layout_engine("none")
-    renderer = fig.canvas.get_renderer()
+    return fig.canvas.get_renderer()
+
+
+def arrange_waypoint_labels(labels, renderer):
+    """Move every waypoint label that sticks out of its panel inside it, then hide those within
+    WAYPOINT_GAP_PT of the previous visible one."""
+    gap = renderer.points_to_pixels(WAYPOINT_GAP_PT)
+    previous = None
+    for text in labels:
+        frame, limits = text.axes.bbox, text.axes.get_xlim()
+        box = text.get_bbox_patch().get_window_extent(renderer)
+        shift = max(frame.x0 + gap - box.x0, 0.0) + min(frame.x1 - gap - box.x1, 0.0)
+        text.set_x(text.get_position()[0] + shift * (limits[1] - limits[0]) / frame.width)
+        box = box.translated(shift, 0.0)
+        if previous is not None and box.overlaps(previous.padded(gap)):
+            text.set_visible(False)
+        else:
+            previous = box
+
+
+def finish_wind_panels(axes, renderer):
+    """Place the legends of the wind panels and make their labels see-through where needed."""
     for ax in axes:
         arrange_legends(ax, renderer)
         see_through_labels(ax, renderer)
 
 
-def draw_wind_row(ax, groups, wind, spec):
-    """One sub-axes with legend per group of a wind row on the common x range; altitude grid only."""
+def draw_wind_row(ax, groups, wind, spec, legends):
+    """One sub-axes per group of a wind row on the common x range, with a legend where asked for and the
+    group has several profiles; altitude grid only."""
     for group in groups:
         inset = wind_inset(ax, group["centre"], wind["width_s"])
         for curtain, i, colour, label in wind_lines(group["profiles"]):
             inset.plot(curtain["data"][i], curtain["z"] / 1000.0, color=colour, lw=PROF_LW, label=label)
         inset.axvline(0.0, **ZERO_LINE_KW)
         style_wind_inset(inset, wind["half"], spec["step"])
-        add_wind_legend(inset)
+        if legends and len(group["profiles"]) > 1:
+            add_wind_legend(inset)
     if not groups:
         empty_panel(ax, NO_DATA_NOTE)
     ax.tick_params(axis="x", which="both", top=False)
@@ -422,12 +466,47 @@ def draw_cursor(ax, view):
     icon.set_in_layout(False)
 
 
+def waypoint_order(waypoints, view):
+    """Indices of the waypoints inside the time window, in time order."""
+    low, high = view["xlim_s"]
+    return [k for k in np.argsort(waypoints["time"]) if low <= waypoints["time"][k] <= high]
+
+
+def draw_waypoint_lines(ax, waypoints, view):
+    """Thin dotted line over the whole panel height at every waypoint inside the time window."""
+    order = waypoint_order(waypoints, view)
+    lines = ax.vlines(seconds_to_num(waypoints["time"][order]), 0.0, 1.0, transform=ax.get_xaxis_transform(),
+                      colors=[WAYPOINT_COLORS[bool(waypoints["measured"][k])] for k in order],
+                      **WAYPOINT_LINE_KW)
+    lines.set_in_layout(False)
+
+
+def draw_waypoints(ax, waypoints, view):
+    """Ticks and labels of the waypoints inside the time window just above the time axis; the label
+    texts in time order."""
+    order = waypoint_order(waypoints, view)
+    transform = ax.get_xaxis_transform()
+    ticks = ax.vlines(seconds_to_num(waypoints["time"][order]), 0.0, ICON_MARGIN_FRACTION,
+                      transform=transform, **WAYPOINT_TICK_KW)
+    ticks.set_in_layout(False)
+    texts = []
+    for k in order:
+        colour = WAYPOINT_COLORS[bool(waypoints["measured"][k])]
+        text = ax.text(seconds_to_num(waypoints["time"][k]), ICON_MARGIN_FRACTION, waypoints["label"][k],
+                       transform=transform, ha="center", va="center", fontsize=PROFILE_FONTSIZE,
+                       color=colour, zorder=WAYPOINT_ZORDER + 0.1,
+                       bbox={**WAYPOINT_BOX, "edgecolor": colour})
+        text.set_in_layout(False)
+        texts.append(text)
+    return texts
+
+
 def add_colorbar(cax, spec):
     """Vertical colorbar of a curtain row in the axes beside its profile panel, also without data."""
-    cb = cax.figure.colorbar(ScalarMappable(Normalize(*spec["clim"]), spec["cmap"]), cax=cax,
+    cb = cax.figure.colorbar(ScalarMappable(colour_norm(spec), spec["cmap"]), cax=cax,
                              extend="both")
     cb.set_label(spec["cbar"])
-    cb.set_ticks(step_ticks(*spec["clim"], spec["step"]))
+    cb.set_ticks(spec.get("cbar_ticks", step_ticks(*spec["clim"], spec["step"])))
 
 
 def date_label(start_s, end_s):
@@ -460,11 +539,11 @@ def add_cell_notes(fig, cells, notes):
 
 
 def place_notes(fig, top, cells, notes):
-    """The notes in the free cells of the wind rows, else in one line each above the top panel."""
+    """The notes in the free cells of the wind rows, else one line per block above the top panel."""
     if cells:
         add_cell_notes(fig, cells, [note for note in notes if note])
     else:
-        add_notes(top, *(note_text(note, " | ", " | ") if note else None for note in notes))
+        add_notes(top, *(note_text(note, " | ", "\n") if note else None for note in notes))
 
 
 def add_notes(ax, left, right):
@@ -488,7 +567,7 @@ def draw_row(panels, key, panel, view, wind):
     if spec["curtain"]:
         draw_curtain_row(*panels, panel, spec, view)
     else:
-        draw_wind_row(panels[0], wind["rows"][key], wind, spec)
+        draw_wind_row(panels[0], wind["rows"][key], wind, spec, key == wind["legend_row"])
     draw_cursor(panels[0], view)
     style.add_corner_label(panels[0], spec["label"], x=CURTAIN_LABEL_X)
     panels[0].set_ylabel("altitude / km")
@@ -496,16 +575,20 @@ def draw_row(panels, key, panel, view, wind):
 
 def draw_rows(fig, layers, view, wind):
     """All rows from top to bottom; (top time-height axes, [(time-height axes, free right-column cell)]
-    of the wind rows)."""
+    of the wind rows, waypoint label texts of the first row)."""
     grid = fig.add_gridspec(len(layers), 2, width_ratios=(CURTAIN_WIDTH_RATIO, 1.0))
     letters = iter(string.ascii_lowercase)
     first_curtain = next((key for key in layers if FIELDS[key]["curtain"]), None)
-    top, wind_rows = None, []
+    top, wind_rows, waypoint_texts = None, [], []
     for row, (key, panel) in enumerate(layers.items()):
         curtain = FIELDS[key]["curtain"]
         panels = row_axes(fig, (grid[row, 0], grid[row, 1]) if curtain else (grid[row, 0],), top)
         top = panels[0] if top is None else top
         draw_row(panels, key, panel, view, wind)
+        if curtain and view["waypoints"]["time"].size:
+            draw_waypoint_lines(panels[0], view["waypoints"], view)
+        if row == 0 and view["waypoints"]["time"].size:
+            waypoint_texts = draw_waypoints(panels[0], view["waypoints"], view)
         if not curtain:
             wind_rows.append((panels[0], grid[row, 1]))
         marks = [style.add_panel_label(ax, next(letters), PANEL_LETTER_PAD_PT) for ax in panels]
@@ -513,7 +596,7 @@ def draw_rows(fig, layers, view, wind):
             style.add_mirrored_label(panels[1], f"{utc_datetime(view['cursor_s']):%H:%M} UTC", marks[1])
         panels[0].tick_params(labelbottom=row == len(layers) - 1, labeltop=row == 0 and curtain)
     panels[0].set_xlabel(date_label(*view["xlim_s"]))
-    return top, wind_rows
+    return top, wind_rows, waypoint_texts
 
 
 def render(layers, view, circles_s, notes, out):
@@ -523,15 +606,18 @@ def render(layers, view, circles_s, notes, out):
                          dpi=DPI)
         tmp = out.with_name(f"{out.stem}.{os.getpid()}.tmp.png")
         try:
-            top, wind_rows = draw_rows(fig, layers, view, wind_layout(layers, circles_s, view))
+            wind = wind_layout(layers, circles_s, view)
+            top, wind_rows, waypoint_texts = draw_rows(fig, layers, view, wind)
             top.set_xlim(seconds_to_num(view["xlim_s"][0]), seconds_to_num(view["xlim_s"][1]))
             top.set_ylim(*view["zlim_km"])
             top.xaxis_date()
             top.xaxis.set_major_locator(mdates.AutoDateLocator())
             top.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
             place_notes(fig, top, [cell for _, cell in wind_rows], notes)
-            if wind_rows:
-                finish_wind_panels(fig, [ax for ax, _ in wind_rows])
+            if wind_rows or waypoint_texts:
+                renderer = freeze_layout(fig)
+                arrange_waypoint_labels(waypoint_texts, renderer)
+                finish_wind_panels([ax for ax, _ in wind_rows], renderer)
             out.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(tmp, dpi=DPI, facecolor="w")
             os.replace(tmp, out)

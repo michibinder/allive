@@ -53,7 +53,8 @@ allive download plans/flight.ftml --departure 2026-11-15T15:30
   archived flight.
 - `--flight` with `--departure` (UTC) adds the planned track: the IFS curtains, the aircraft altitude
   and the planned wind circles. `--speed` sets the ground speed (default 230 m/s). The flight plan is
-  an FTML file (waypoints with flight levels, as written by the Mission Support System).
+  an FTML file (waypoints with flight levels, as written by the Mission Support System) or a KML file;
+  from a KML the named points are read in file order, with border crossings left out.
 - `plan` prints the MARS requests of a flight and the time their data are released. It sends nothing.
   `download` sends the requests and converts the result. Both take `--base 2026-11-13T00` to choose
   the forecast run.
@@ -74,14 +75,28 @@ Further options of `plot`:
 - The rows T, T′ and w are curtains: a time–height panel, a narrow panel with the profiles at the
   cursor (IFS green, ALIMA red), and a colorbar. IFS is drawn first and ALIMA on top of it. T′ is the temperature after a
   5th-order Butterworth high-pass in the vertical with a cutoff of 20 km, for ALIMA and IFS alike.
+  Its colour scale is logarithmic: one colour per doubling from 1 to 32 K, white below 1 K.
 - In a row that shows measurements over the IFS, faded grey contour lines keep the IFS field visible:
   every 10 K for T, 1 K for T′ and 0.2 m/s for w, solid for positive and dashed for negative values.
   A line of the flight note names these steps.
 - The dashed cursor marks the newest measured profile, with the aircraft symbol centred on it. The
   label of the first profile panel gives its time.
 - The rows u and v show wind profiles in small sub-axes at the time of their measurement. Profiles at
-  most 15 min apart share one sub-axes, and its legend gives their times. With a flight plan, every
-  planned circle ahead of the aircraft shows the IFS profile.
+  most 15 min apart share one sub-axes. A sub-axes with two or more profiles has a legend with their
+  times at its lower centre, in the first wind row only. With a flight plan, every planned circle
+  ahead of the aircraft shows the IFS profile.
+- Waypoints are marked in the first time-height panel by a tick above the time axis with a boxed label
+  at the height of the aircraft symbol, and by a thin dotted line through the time-height panels of the
+  rows T, T′ and w.
+  - Measured waypoints are black. These are the planned waypoints the aircraft passed within 30 km, at
+    the time it passed them, and every turn of the measured track: a course change of more than
+    35 degrees above 7 km altitude, where turns within 10 minutes count as one.
+  - Planned waypoints are grey. They are shown only ahead of the aircraft, at times estimated from the
+    progress along the plan.
+  - Labels: a planned waypoint carries its name, or its number counted from 0 if it has none, as in the
+    Mission Support System. A turn within 30 km of a planned waypoint is that waypoint; any other turn
+    is "•". Without a flight plan the turns are numbered 1, 2, ...
+  - Labels that would overlap the previous one are hidden, the ticks and lines stay.
 - The cells right of the wind rows hold the flight plan, the IFS run and the newest position.
 
 ## Live files

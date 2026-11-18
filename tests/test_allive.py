@@ -12,12 +12,24 @@ DEPARTURE_S = dt.datetime.fromisoformat(DEPARTURE).replace(tzinfo=dt.timezone.ut
 BASE = dt.datetime(2026, 11, 10, 0)
 WAYPOINTS = ((10.0, 50.0, 0.0), (10.0, 51.0, 340.0), (10.5, 51.5, 360.0), (11.0, 51.5, 360.0),
              (11.0, 52.0, 360.0), (10.5, 52.0, 360.0), (10.5, 51.5, 360.0), (10.0, 50.5, 0.0))
+NAMES = ("EDMO", "", "", "", "", "", "", " EDMO ")
 FTML = """<?xml version="1.0" encoding="utf-8"?>
 <FlightTrack><ListOfWaypoints>
 {}
 </ListOfWaypoints></FlightTrack>
 """
-WAYPOINT = '<Waypoint flightlevel="{2}" lat="{1}" location="W" lon="{0}"><Comments></Comments></Waypoint>'
+WAYPOINT = '<Waypoint flightlevel="{2}" lat="{1}" location="{3}" lon="{0}"><Comments></Comments></Waypoint>'
+KML = """<?xml version="1.0" encoding="utf-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+{}
+<Placemark><name>route</name><LineString><coordinates>9,48,0 10,50,0</coordinates></LineString></Placemark>
+</Document></kml>
+"""
+KML_POINT = "<Placemark><name>{0}</name><Point><coordinates>{1},{2},{3}</coordinates></Point></Placemark>"
+KML_POINTS = (("MAH - Way point", 9.5, 48.5, 10000), ("MAH again - Way point", 9.5, 48.5, 10000),
+              ("Germany - Country intersection", 10.0, 49.0, 0), ("ALOSO - Way point", 11.0, 50.0, 11500))
+SLOW_SPEED_MS = 40.0
+FIX_STEP_S = 30.0
 STRIDE = 1
 LEVEL_STEP_M = STRIDE * stream.DZ_M
 TEMPERATURE_K = 250.0
@@ -27,7 +39,7 @@ SURFACE_PRESSURE_PA = 1.0e5
 
 def write_plan(path):
     """Write the test flight plan as FTML and return its path."""
-    path.write_text(FTML.format("\n".join(WAYPOINT.format(*w) for w in WAYPOINTS)))
+    path.write_text(FTML.format("\n".join(WAYPOINT.format(*w, name) for w, name in zip(WAYPOINTS, NAMES))))
     return path
 
 
@@ -50,6 +62,33 @@ def test_flight_plan_to_track(tmp_path):
     assert (planned["lon"][-1], planned["lat"][-1]) == pytest.approx(WAYPOINTS[-1][:2])
     circles = track.circle_times(track.read_flight_plan(plan), DEPARTURE_S, track.DEFAULT_SPEED_MS)
     assert circles.size == 1 and planned["time"][0] < circles[0] < planned["time"][-1]
+    plan_data = track.read_flight_plan(plan)
+    assert track.waypoint_labels(plan_data) == ["EDMO", "1", "2", "3", "4", "5", "6", "EDMO"]
+    kml = tmp_path / "plan.kml"
+    kml.write_text(KML.format("\n".join(KML_POINT.format(*point) for point in KML_POINTS)))
+    route = track.read_flight_plan(kml)
+    assert route["name"] == ["MAH", "ALOSO"] and list(route["lon"]) == [9.5, 11.0]
+    assert list(route["lat"]) == [48.5, 50.0] and list(route["alt"]) == [10000.0, 11500.0]
+    with pytest.raises(ValueError, match="supported"):
+        track.read_flight_plan(tmp_path / "plan.gpx")
+    dense = track.planned_track(plan_data, DEPARTURE_S, SLOW_SPEED_MS, FIX_STEP_S)
+    delay_s, kept = 420.0, slice(dense["time"].size // 5, -(dense["time"].size // 5))
+    fixes = {key: dense[key][kept] for key in track.TRACK_KEYS}
+    fixes["time"] = fixes["time"] + delay_s
+    expected = DEPARTURE_S + track.leg_geometry(plan_data)[2] / SLOW_SPEED_MS + delay_s
+    inside = (expected >= fixes["time"][0]) & (expected <= fixes["time"][-1])
+    assert inside.sum() >= 4 and not inside.all()
+    when = track.waypoint_times(plan_data, fixes, DEPARTURE_S, SLOW_SPEED_MS)
+    assert when[inside] == pytest.approx(expected[inside], abs=60.0)
+    assert fixes["alt"].max() > track.MIN_TURN_ALTITUDE_M
+    marks = track.waypoint_marks(plan_data, fixes, DEPARTURE_S, SLOW_SPEED_MS)
+    flown = marks["measured"]
+    assert marks["label"][:flown.sum()] == ["1", "2", "3", "4", "5", "6"]
+    assert marks["time"][flown] == pytest.approx(expected[1:7], abs=120.0)
+    ahead = expected > fixes["time"][-1]
+    assert marks["label"][flown.sum():] == [n for n, a in zip(track.waypoint_labels(plan_data), ahead) if a]
+    assert marks["time"][~flown] == pytest.approx(expected[ahead], abs=60.0)
+    assert track.waypoint_marks(None, fixes, None, SLOW_SPEED_MS)["label"] == ["1", "2", "3", "4"]
     north, west, south, east = (float(v) for v in ifs.mars_area(planned).split("/"))
     assert all(v == round(v) for v in (north, west, south, east))
     assert 0 <= north - (planned["lat"].max() + ifs.AREA_MARGIN_DEG) < ifs.AREA_ROUND_DEG

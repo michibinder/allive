@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from allive.figure import FIELDS, cell_edges, contour_key, render
+from allive.figure import FIELDS, cell_edges, contour_key, render, waypoint_key
 from allive.filters import vertical_primes
 from allive.ifs import downloaded_config, flight_config, virtual_curtains
 from allive.mars import netcdf_files
@@ -14,7 +14,8 @@ from allive.paths import figure_dir
 from allive.stream import (VALID_RANGE, archive, build_curtain, describe, fetch_all, flight_profiles,
                            flight_stamp, height_range_km, is_url, measured_fixes, newest_profile,
                            parse_profiles)
-from allive.track import circle_times, merge_fixes, planned_flight, read_flight_plan
+from allive.track import (TRACK_STEP_S, circle_times, merge_fixes, planned_track, read_flight_plan,
+                          waypoint_marks)
 from allive.utc import log_utc, utc_datetime, utc_seconds
 
 IFS_VARIABLES = {"T.txt": "t", "w.txt": "w", "u.txt": "u", "v.txt": "v"}
@@ -157,15 +158,15 @@ def aircraft_altitude_km(path, when_s):
     return float(np.interp(when_s, path["time"], path["alt"])) / 1000.0
 
 
-def flight_data(args, planned, fixes):
+def flight_data(args, plan, planned, fixes):
     """(track, IFS curtains, note, times of the planned circles after the newest fix) of the planned
-    flight; no track, IFS or note and no circles without one."""
+    flight; none of them without one."""
     if planned is None:
         return None, None, None, np.array([])
     track = planned if fixes is None else merge_fixes(planned, fixes)
     cfg = downloaded_config(args.flight, planned) or flight_config(args.flight, planned)
     ifs, ifs_lines = ifs_layer(args, cfg, track)
-    circles = circle_times(read_flight_plan(args.flight), args.departure, args.speed)
+    circles = circle_times(plan, args.departure, args.speed)
     ahead = circles if fixes is None else circles[circles > fixes["time"][-1]]
     return track, ifs, flight_note(args, ifs_lines), ahead
 
@@ -184,7 +185,8 @@ def process(payloads, args):
     stamp = flight_stamp(parsed)
     if is_url(args.source) and stamp:
         archive(payloads, stamp)
-    planned = planned_flight(args.flight, args.departure, args.speed) if args.flight else None
+    plan = read_flight_plan(args.flight) if args.flight else None
+    planned = planned_track(plan, args.departure, args.speed, TRACK_STEP_S) if plan else None
     if planned is not None:
         parsed = flight_profiles(parsed, planned)
     curtains = {name: build_curtain(parsed[name], valid, args.above_aircraft)
@@ -193,7 +195,8 @@ def process(payloads, args):
         for name in VALID_RANGE:
             log_utc(describe(name, parsed[name], curtains[name]))
     fixes = measured_fixes(parsed)
-    track, ifs, note, circles_s = flight_data(args, planned, fixes)
+    track, ifs, note, circles_s = flight_data(args, plan, planned, fixes)
+    waypoints = waypoint_marks(plan, fixes, args.departure, args.speed)
     layers = panel_layers(curtains, ifs, args.panels)
     latest = newest_profile(parsed, fixes)
     xlim_s = time_limits(measured_span(parsed), track, args.hours)
@@ -201,8 +204,9 @@ def process(payloads, args):
     has_data = any(layers.values()) or latest is not None
     cursor_s = cursor_time(args.time, xlim_s, latest, track) if has_data else None
     view = {"xlim_s": xlim_s, "zlim_km": zlim_km, "cursor_s": cursor_s,
-            "aircraft_km": aircraft_altitude_km(fixes if track is None else track, cursor_s)}
-    notes = (note and note + contour_key(layers), measurement_note(latest))
+            "aircraft_km": aircraft_altitude_km(fixes if track is None else track, cursor_s),
+            "waypoints": waypoints}
+    notes = (note and note + contour_key(layers) + waypoint_key(waypoints), measurement_note(latest))
     path = render(layers, view, circles_s, notes, output_path(args, stamp))
     log_utc(f"saved {path}")
 

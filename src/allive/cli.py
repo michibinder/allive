@@ -68,7 +68,7 @@ def add_plot_parser(commands):
     p.add_argument("--above-aircraft", action="store_true",
                    help="height grid starts at each profile's aircraft altitude, not at sea level")
     p.add_argument("--flight", type=readable_plan, metavar="PLAN",
-                   help="flight plan (.ftml) for the IFS virtual curtains")
+                   help="flight plan (.ftml or .kml) for the IFS virtual curtains")
     add_flight_arguments(p, required=False)
     p.add_argument("--time", type=clock_or_iso, metavar="WHEN", help="cursor and profile time: HH, "
                    "HH:MM or ISO UTC (default: newest measured profile, else the end of the flight)")
@@ -79,7 +79,7 @@ def add_plot_parser(commands):
 def add_ifs_parser(commands, name, description):
     """A subcommand that plans or runs the IFS download of a flight plan."""
     p = commands.add_parser(name, description=description)
-    p.add_argument("flight_plan", type=readable_plan, metavar="PLAN", help="flight plan file (.ftml)")
+    p.add_argument("flight_plan", type=readable_plan, metavar="PLAN", help="flight plan file (.ftml or .kml)")
     add_flight_arguments(p, required=True)
     p.add_argument("--base", type=run_base, metavar="ISO",
                    help="forecast run to use, 00 or 12 UTC, e.g. 2026-11-13T00 (default: newest usable)")
