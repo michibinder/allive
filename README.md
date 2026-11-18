@@ -78,7 +78,7 @@ Further options of `plot`:
   Its colour scale is logarithmic: one colour per doubling from 1 to 32 K, white below 1 K.
 - In a row that shows measurements over the IFS, faded grey contour lines keep the IFS field visible:
   every 10 K for T, 1 K for T′ and 0.2 m/s for w, solid for positive and dashed for negative values.
-  A line of the flight note names these steps.
+  A line of the notes names these steps.
 - The dashed cursor marks the newest measured profile, with the aircraft symbol centred on it. The
   label of the first profile panel gives its time.
 - The rows u and v show wind profiles in small sub-axes at the time of their measurement. Profiles at
@@ -97,7 +97,13 @@ Further options of `plot`:
     Mission Support System. A turn within 30 km of a planned waypoint is that waypoint; any other turn
     is "•". Without a flight plan the turns are numbered 1, 2, ...
   - Labels that would overlap the previous one are hidden, the ticks and lines stay.
-- The cells right of the wind rows hold the flight plan, the IFS run and the newest position.
+- The corner right of the wind rows gives the take-off time and the name of the flight plan and, while
+  the IFS is drawn, its run. A line wider than the corner gets a smaller font, down to 5 pt. Below the
+  lines is a sketch of the flight in longitude and latitude at equal distances, without a map: the
+  route of the flight plan grey, the measured track black, every waypoint mark of the flight with its
+  label and colour from the time axis, and the aircraft symbol at the cursor. It shows where each label
+  of the time axis lies on the route. The corner takes no room from the panels. Without wind rows the
+  lines are joined into one line above the top panel, and there is no sketch.
 
 ## Live files
 

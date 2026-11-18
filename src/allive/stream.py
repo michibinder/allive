@@ -197,14 +197,10 @@ def measured_fixes(parsed):
     return {key: values[index] for key, values in pooled.items()}
 
 
-def newest_profile(parsed, fixes):
-    """(time of the newest profile over all files, (lat, lon, aircraft altitude) of the newest
-    located one or None), or None without profiles."""
+def newest_profile(parsed):
+    """Time of the newest profile over all files, or None without profiles."""
     times = [p["time"][-1] for p in parsed.values() if p is not None]
-    if not times:
-        return None
-    position = None if fixes is None else tuple(fixes[key][-1] for key in ("lat", "lon", "alt"))
-    return max(times), position
+    return max(times) if times else None
 
 
 def flight_stamp(parsed):

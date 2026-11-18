@@ -1,7 +1,6 @@
 import functools
 import os
 import string
-import textwrap
 
 import numpy as np
 
@@ -43,7 +42,8 @@ SOURCE_COLORS = {"IFS": "#009E73", "ALIMA": "#E31A1C"}
 WIND_PROFILE_COLORS = (SOURCE_COLORS["ALIMA"], "#0072B2", "#E69F00", "#7B3FA0", "#56B4E9", "0.3")
 NOTE_STYLE = {"fontsize": 7, "color": "0.25"}
 CELL_NOTE_STYLE = {**NOTE_STYLE, "fontsize": 8}
-CELL_NOTE_CHARS = 34
+MIN_NOTE_FONTSIZE = 5.0
+NOTE_FONT_STEP = 0.25
 NOTE_OFFSET_PT = 18.0
 AIRCRAFT_ICON = "✈"
 ICON_MARGIN_FRACTION = 0.07
@@ -59,6 +59,11 @@ WAYPOINT_LINE_KW = {"linewidths": 0.6, "linestyles": ":", "zorder": WAYPOINT_ZOR
 WAYPOINT_COLORS = {True: "black", False: "0.5"}
 WAYPOINT_GAP_PT = 2.0
 WAYPOINT_BOX = {"boxstyle": "round,pad=0.2", "facecolor": "white", "linewidth": 0.5}
+SKETCH_FONTSIZE = 6
+SKETCH_LW = 0.8
+SKETCH_ICON_KW = {**ICON_KW, "fontsize": 11}
+SKETCH_GAP_PT = 6.0
+SKETCH_PAD_PT = 1.5
 WIND_LEGEND_KW = {"fontsize": PROFILE_FONTSIZE, "loc": "lower left", "handlelength": 1.0,
                   "handletextpad": 0.5, "borderpad": 0.3, "borderaxespad": 1.0, "framealpha": 1.0}
 PROFILE_TICK_PAD_PT = -14.0
@@ -133,15 +138,10 @@ def has_contours(spec, panel):
 
 
 def contour_key(layers):
-    """Blocks of note lines that explain the IFS contour lines of the rows that draw them."""
+    """Note lines that explain the IFS contour lines of the rows that draw them."""
     steps = ["{:g} {}".format(*FIELDS[key]["contours"]) for key, panel in layers.items()
              if has_contours(FIELDS[key], panel)]
-    return [(f"grey lines: IFS in steps of {', '.join(steps)}",)] if steps else []
-
-
-def waypoint_key(waypoints):
-    """Blocks of note lines that explain the colours of the waypoint marks when some are planned."""
-    return [("waypoints: black flown, grey planned",)] if not waypoints["measured"].all() else []
+    return [f"grey lines: IFS in steps of {', '.join(steps)}"] if steps else []
 
 
 def draw_contours(ax, curtain, spec):
@@ -206,9 +206,9 @@ def shown_values(curtain, row, zlim_km):
     return curtain["data"][row][(z_km >= zlim_km[0]) & (z_km <= zlim_km[1])]
 
 
-def time_clusters(times):
-    """Index arrays of the runs of sorted times whose neighbours lie at most WIND_GROUP_GAP_S apart."""
-    parts = np.split(np.arange(times.size), np.flatnonzero(np.diff(times) > WIND_GROUP_GAP_S) + 1)
+def time_clusters(times, gap=WIND_GROUP_GAP_S):
+    """Index arrays of the runs of sorted times (or grid rows) whose neighbours lie at most gap apart."""
+    parts = np.split(np.arange(times.size), np.flatnonzero(np.diff(times) > gap) + 1)
     return [part for part in parts if part.size]
 
 
@@ -481,6 +481,16 @@ def draw_waypoint_lines(ax, waypoints, view):
     lines.set_in_layout(False)
 
 
+def waypoint_label(ax, xy, label, measured, fontsize, **kwargs):
+    """Boxed waypoint label centred on xy, black for a measured and grey for a planned waypoint, outside
+    the layout."""
+    colour = WAYPOINT_COLORS[bool(measured)]
+    text = ax.text(*xy, label, ha="center", va="center", fontsize=fontsize, color=colour,
+                   zorder=WAYPOINT_ZORDER + 0.1, bbox={**WAYPOINT_BOX, "edgecolor": colour}, **kwargs)
+    text.set_in_layout(False)
+    return text
+
+
 def draw_waypoints(ax, waypoints, view):
     """Ticks and labels of the waypoints inside the time window just above the time axis; the label
     texts in time order."""
@@ -489,16 +499,10 @@ def draw_waypoints(ax, waypoints, view):
     ticks = ax.vlines(seconds_to_num(waypoints["time"][order]), 0.0, ICON_MARGIN_FRACTION,
                       transform=transform, **WAYPOINT_TICK_KW)
     ticks.set_in_layout(False)
-    texts = []
-    for k in order:
-        colour = WAYPOINT_COLORS[bool(waypoints["measured"][k])]
-        text = ax.text(seconds_to_num(waypoints["time"][k]), ICON_MARGIN_FRACTION, waypoints["label"][k],
-                       transform=transform, ha="center", va="center", fontsize=PROFILE_FONTSIZE,
-                       color=colour, zorder=WAYPOINT_ZORDER + 0.1,
-                       bbox={**WAYPOINT_BOX, "edgecolor": colour})
-        text.set_in_layout(False)
-        texts.append(text)
-    return texts
+    return [waypoint_label(ax, (seconds_to_num(waypoints["time"][k]), ICON_MARGIN_FRACTION),
+                           waypoints["label"][k], waypoints["measured"][k], PROFILE_FONTSIZE,
+                           transform=transform)
+            for k in order]
 
 
 def add_colorbar(cax, spec):
@@ -519,39 +523,74 @@ def date_label(start_s, end_s):
     return f"time (UTC), {a:%d %b}-{b:%d %b %Y}"
 
 
-def note_text(blocks, line_sep, block_sep):
-    """Text of a note given as blocks of lines."""
-    return block_sep.join(line_sep.join(block) for block in blocks)
-
-
-def add_cell_notes(fig, cells, notes):
-    """Notes as grey text wrapped at CELL_NOTE_CHARS at the top left of the free cells, one per cell,
-    the rest in the last."""
-    if len(notes) > len(cells):
-        notes = notes[:len(cells) - 1] + [sum(notes[len(cells) - 1:], [])]
-    for cell, blocks in zip(cells, notes):
-        ax = fig.add_subplot(cell)
+def corner_axes(fig, cells):
+    """Empty axes with the axis off in the free cells; laid out, their boxes make up the corner."""
+    axes = [fig.add_subplot(cell) for cell in cells]
+    for ax in axes:
         ax.axis("off")
-        wrapped = [[textwrap.fill(line, CELL_NOTE_CHARS) for line in block] for block in blocks]
-        text = ax.text(0.0, 1.0, note_text(wrapped, "\n", "\n\n"), transform=ax.transAxes, ha="left",
-                       va="top", **CELL_NOTE_STYLE)
-        text.set_in_layout(False)
+    return axes
 
 
-def place_notes(fig, top, cells, notes):
-    """The notes in the free cells of the wind rows, else one line per block above the top panel."""
-    if cells:
-        add_cell_notes(fig, cells, [note for note in notes if note])
-    else:
-        add_notes(top, *(note_text(note, " | ", "\n") if note else None for note in notes))
+def add_lines(fig, box, lines, renderer):
+    """Grey lines of one line each from the top left of a figure box down, the font of a line wider than the
+    box shrunk in NOTE_FONT_STEP steps until it fits, not below MIN_NOTE_FONTSIZE; the figure y below."""
+    width = box.width * fig.bbox.width
+    y = box.y1
+    for line in lines:
+        text = fig.text(box.x0, y, line, ha="left", va="top", **CELL_NOTE_STYLE)
+        while text.get_window_extent(renderer).width > width and text.get_fontsize() > MIN_NOTE_FONTSIZE:
+            text.set_fontsize(max(MIN_NOTE_FONTSIZE, text.get_fontsize() - NOTE_FONT_STEP))
+        y = text.get_window_extent(renderer).y0 / fig.bbox.height
+    return y
 
 
-def add_notes(ax, left, right):
-    """Small notes just above the panel, aligned with its left and its right edge."""
-    for text, x, ha in ((left, 0.0, "left"), (right, 1.0, "right")):
-        if text:
-            ax.annotate(text, xy=(x, 1.0), xycoords="axes fraction", xytext=(0.0, NOTE_OFFSET_PT),
-                        textcoords="offset points", ha=ha, va="bottom", **NOTE_STYLE)
+def text_box(text, renderer):
+    """Display box of a text, with its box patch when it has one."""
+    patch = text.get_bbox_patch()
+    if patch is None:
+        return text.get_window_extent(renderer)
+    text.update_bbox_position_size(renderer)
+    return patch.get_window_extent(renderer)
+
+
+def draw_sketch(fig, box, view, renderer):
+    """Planned route (grey), measured track (black), all waypoint marks and the aircraft at the cursor in
+    longitude and latitude at equal distances, at the top of a figure box and inset so no text sticks out."""
+    paths = [(path, measured) for path, measured in ((view["plan"], False), (view["fixes"], True))
+             if path is not None]
+    if not paths:
+        return
+    ax = fig.add_axes(box.bounds)
+    ax.axis("off")
+    for path, measured in paths:
+        ax.plot(path["lon"], path["lat"], color=WAYPOINT_COLORS[measured], lw=SKETCH_LW)
+    marks, texts = view["waypoints"], []
+    for lon, lat, label, measured in zip(marks["lon"], marks["lat"], marks["label"], marks["measured"]):
+        texts.append(waypoint_label(ax, (lon, lat), label, measured, SKETCH_FONTSIZE))
+    if view["position"] is not None:
+        texts.append(ax.text(view["position"]["lon"], view["position"]["lat"], AIRCRAFT_ICON,
+                             **SKETCH_ICON_KW))
+    ax.margins(0.0)
+    ax.set_aspect(1.0 / np.cos(np.radians(np.mean(ax.get_ylim()))), adjustable="box", anchor="N")
+    sizes = [text_box(text, renderer).size for text in texts] or [(0.0, 0.0)]
+    half = (np.max(sizes, axis=0) / 2.0 + renderer.points_to_pixels(SKETCH_PAD_PT)) / fig.bbox.size
+    ax.set_position(box.padded(-half[0], -half[1]))
+
+
+def fill_corner(fig, axes, notes, view, renderer):
+    """The notes as lines at the top left of the corner, the first free cells in adjacent grid rows, and the
+    track sketch below them."""
+    rows = np.array([ax.get_subplotspec().rowspan.start for ax in axes])
+    box = Bbox.union([axes[k].get_position() for k in time_clusters(rows, 1)[0]])
+    bottom = add_lines(fig, box, notes, renderer)
+    gap = renderer.points_to_pixels(SKETCH_GAP_PT) / fig.bbox.height if notes else 0.0
+    draw_sketch(fig, Bbox.from_extents(box.x0, box.y0, box.x1, bottom - gap), view, renderer)
+
+
+def add_note(ax, text):
+    """Small note just above the panel, aligned with its left edge."""
+    ax.annotate(text, xy=(0.0, 1.0), xycoords="axes fraction", xytext=(0.0, NOTE_OFFSET_PT),
+                textcoords="offset points", ha="left", va="bottom", **NOTE_STYLE)
 
 
 def row_axes(fig, cells, top):
@@ -600,7 +639,7 @@ def draw_rows(fig, layers, view, wind):
 
 
 def render(layers, view, circles_s, notes, out):
-    """Draw one row per quantity and the notes and save the figure atomically to out."""
+    """Draw one row per quantity, the notes and the track sketch and save the figure atomically to out."""
     with plt.style.context(style.STYLE_SHEET):
         fig = plt.figure(layout="constrained", figsize=(FIGURE_WIDTH_IN, PANEL_HEIGHT_IN * len(layers)),
                          dpi=DPI)
@@ -613,11 +652,16 @@ def render(layers, view, circles_s, notes, out):
             top.xaxis_date()
             top.xaxis.set_major_locator(mdates.AutoDateLocator())
             top.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-            place_notes(fig, top, [cell for _, cell in wind_rows], notes)
+            cells = [cell for _, cell in wind_rows] if notes or view["cursor_s"] is not None else []
+            corner = corner_axes(fig, cells)
+            if notes and not corner:
+                add_note(top, " | ".join(notes))
             if wind_rows or waypoint_texts:
                 renderer = freeze_layout(fig)
                 arrange_waypoint_labels(waypoint_texts, renderer)
                 finish_wind_panels([ax for ax, _ in wind_rows], renderer)
+                if corner:
+                    fill_corner(fig, corner, notes, view, renderer)
             out.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(tmp, dpi=DPI, facecolor="w")
             os.replace(tmp, out)

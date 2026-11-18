@@ -88,6 +88,8 @@ def test_flight_plan_to_track(tmp_path):
     ahead = expected > fixes["time"][-1]
     assert marks["label"][flown.sum():] == [n for n, a in zip(track.waypoint_labels(plan_data), ahead) if a]
     assert marks["time"][~flown] == pytest.approx(expected[ahead], abs=60.0)
+    places = np.c_[plan_data["lon"], plan_data["lat"]][np.r_[1:7, np.flatnonzero(ahead)]]
+    assert np.c_[marks["lon"], marks["lat"]] == pytest.approx(places, abs=0.05)
     assert track.waypoint_marks(None, fixes, None, SLOW_SPEED_MS)["label"] == ["1", "2", "3", "4"]
     north, west, south, east = (float(v) for v in ifs.mars_area(planned).split("/"))
     assert all(v == round(v) for v in (north, west, south, east))

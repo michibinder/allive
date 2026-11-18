@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from allive.figure import FIELDS, cell_edges, contour_key, render, waypoint_key
+from allive.figure import FIELDS, cell_edges, contour_key, render
 from allive.filters import vertical_primes
 from allive.ifs import downloaded_config, flight_config, virtual_curtains
 from allive.mars import netcdf_files
@@ -14,8 +14,8 @@ from allive.paths import figure_dir
 from allive.stream import (VALID_RANGE, archive, build_curtain, describe, fetch_all, flight_profiles,
                            flight_stamp, height_range_km, is_url, measured_fixes, newest_profile,
                            parse_profiles)
-from allive.track import (TRACK_STEP_S, circle_times, merge_fixes, planned_track, read_flight_plan,
-                          waypoint_marks)
+from allive.track import (TRACK_KEYS, TRACK_STEP_S, circle_times, merge_fixes, planned_track,
+                          read_flight_plan, waypoint_marks)
 from allive.utc import log_utc, utc_datetime, utc_seconds
 
 IFS_VARIABLES = {"T.txt": "t", "w.txt": "w", "u.txt": "u", "v.txt": "v"}
@@ -95,7 +95,7 @@ def cursor_time(when, window_s, latest, track):
     """Cursor in unix seconds: given (the window centre, with a log line, for a clock time outside
     the window), else the newest measured profile, else the track's end."""
     if when is None:
-        return latest[0] if latest is not None else track["time"][-1]
+        return latest if latest is not None else track["time"][-1]
     if isinstance(when, dt.datetime):
         return utc_seconds(when)
     window = tuple(utc_datetime(s) for s in window_s)
@@ -107,25 +107,12 @@ def cursor_time(when, window_s, latest, track):
     return utc_seconds(window[0] + (window[1] - window[0]) / 2)
 
 
-def measurement_note(latest):
-    """Blocks of lines of the note on the newest measured profile and position, or None."""
-    if latest is None:
-        return None
-    when, position = latest
-    lines = [f"ALIMA latest profile {utc_datetime(when):%H:%M:%S} UTC"]
-    if position is not None:
-        lat, lon, alt = position
-        north, east = "N" if lat >= 0 else "S", "E" if lon >= 0 else "W"
-        lines += [f"{abs(lat):.2f}°{north} {abs(lon):.2f}°{east}", f"aircraft at {alt / 1000.0:.1f} km"]
-    return [tuple(lines)]
-
-
-def flight_note(args, ifs_lines):
-    """Blocks of lines of the note on the flight plan, departure, ground speed and IFS layer."""
-    flight = (f"flight plan {Path(args.flight).stem}",
-              f"departure {utc_datetime(args.departure):%d %b %Y %H:%M} UTC",
-              f"ground speed {args.speed:g} m/s")
-    return [flight, ifs_lines]
+def flight_note(args, cfg, ifs):
+    """Lines of the note on the flight: take-off, flight plan and, with IFS curtains, their run."""
+    lines = [f"take-off {utc_datetime(args.departure):%d %b %Y %H:%M} UTC", Path(args.flight).stem]
+    if ifs is not None:
+        lines.append(f"IFS run {dt.datetime.fromisoformat(cfg['base']):%d %b %Y %H} UTC")
+    return lines
 
 
 def download_command(args):
@@ -135,7 +122,7 @@ def download_command(args):
 
 
 def ifs_layer(args, cfg, track):
-    """(IFS curtains along the track or None, IFS lines of the flight note)."""
+    """IFS curtains along the track, or None with a log line on how to get them."""
     files = netcdf_files(cfg)
     try:
         ifs = virtual_curtains(cfg, track)
@@ -143,32 +130,30 @@ def ifs_layer(args, cfg, track):
         reason = str(err).splitlines()[0] if str(err) else type(err).__name__
         log_utc(f"IFS files {files[0]} and {files[1]} unreadable ({reason}); delete them and run "
                 f"the download again: {download_command(args)}")
-        return None, ("IFS files unreadable",)
+        return None
     if ifs is None:
         log_utc(f"no IFS data in {files[0].parent}; download it with: {download_command(args)}")
-        return None, ("no IFS data",)
-    return ifs, (f"IFS run {dt.datetime.fromisoformat(cfg['base']):%d %b %Y %H} UTC",
-                 f"forecast +{cfg['steps'][0]} to +{cfg['steps'][-1]} h")
+    return ifs
 
 
-def aircraft_altitude_km(path, when_s):
-    """Aircraft altitude in km at a time along a track or measured fixes, or None."""
+def track_point(path, when_s):
+    """Position {"lon", "lat", "alt"} at a time along a track or measured fixes, or None."""
     if path is None or when_s is None:
         return None
-    return float(np.interp(when_s, path["time"], path["alt"])) / 1000.0
+    return {key: float(np.interp(when_s, path["time"], path[key])) for key in TRACK_KEYS[1:]}
 
 
 def flight_data(args, plan, planned, fixes):
-    """(track, IFS curtains, note, times of the planned circles after the newest fix) of the planned
-    flight; none of them without one."""
+    """(track, IFS curtains, note lines, times of the planned circles after the newest fix) of the planned
+    flight; no track, curtains, lines or circles without one."""
     if planned is None:
-        return None, None, None, np.array([])
+        return None, None, [], np.array([])
     track = planned if fixes is None else merge_fixes(planned, fixes)
     cfg = downloaded_config(args.flight, planned) or flight_config(args.flight, planned)
-    ifs, ifs_lines = ifs_layer(args, cfg, track)
+    ifs = ifs_layer(args, cfg, track)
     circles = circle_times(plan, args.departure, args.speed)
     ahead = circles if fixes is None else circles[circles > fixes["time"][-1]]
-    return track, ifs, flight_note(args, ifs_lines), ahead
+    return track, ifs, flight_note(args, cfg, ifs), ahead
 
 
 def output_path(args, stamp):
@@ -198,16 +183,16 @@ def process(payloads, args):
     track, ifs, note, circles_s = flight_data(args, plan, planned, fixes)
     waypoints = waypoint_marks(plan, fixes, args.departure, args.speed)
     layers = panel_layers(curtains, ifs, args.panels)
-    latest = newest_profile(parsed, fixes)
+    latest = newest_profile(parsed)
     xlim_s = time_limits(measured_span(parsed), track, args.hours)
     zlim_km = height_limits(layers, xlim_s, args.zlim)
     has_data = any(layers.values()) or latest is not None
     cursor_s = cursor_time(args.time, xlim_s, latest, track) if has_data else None
+    aircraft = track_point(fixes if track is None else track, cursor_s)
     view = {"xlim_s": xlim_s, "zlim_km": zlim_km, "cursor_s": cursor_s,
-            "aircraft_km": aircraft_altitude_km(fixes if track is None else track, cursor_s),
-            "waypoints": waypoints}
-    notes = (note and note + contour_key(layers) + waypoint_key(waypoints), measurement_note(latest))
-    path = render(layers, view, circles_s, notes, output_path(args, stamp))
+            "aircraft_km": aircraft and aircraft["alt"] / 1000.0, "waypoints": waypoints, "plan": plan,
+            "fixes": fixes, "position": track_point(fixes, cursor_s)}
+    path = render(layers, view, circles_s, note + contour_key(layers), output_path(args, stamp))
     log_utc(f"saved {path}")
 
 

@@ -7,6 +7,7 @@ from pyproj import Geod
 FLIGHT_LEVEL_M = 30.48
 GEOD = Geod(ellps="WGS84")
 TRACK_KEYS = ("time", "lon", "lat", "alt")
+MARK_KEYS = TRACK_KEYS[:3]
 TRACK_STEP_S = 60.0
 DEFAULT_SPEED_MS = 230.0
 MIN_LOOP_SPAN = 4
@@ -195,7 +196,7 @@ def measured_turns(fixes):
     change[1:] = np.maximum(change[1:], course_change(course[:-2], course[2:]))
     turning = keep[1:-1][(change > MIN_TURN_DEG) & (fixes["alt"][keep[1:-1]] >= MIN_TURN_ALTITUDE_M)]
     first = turning[np.r_[True, np.diff(fixes["time"][turning]) > TURN_MERGE_S]] if turning.size else turning
-    return {key: fixes[key][first] for key in ("time", "lon", "lat")}
+    return {key: fixes[key][first] for key in MARK_KEYS}
 
 
 def match_plan(turns, plan):
@@ -227,12 +228,13 @@ def passed_waypoints(plan, fixes, times):
 
 
 def waypoint_marks(plan, fixes, departure_s, speed_ms):
-    """Marks {"time", "label", "measured"} in time order: the turns in the fixes and the planned waypoints
-    the aircraft passed (measured), and the planned waypoints still ahead of the newest fix."""
-    turns = {key: np.array([]) for key in ("time", "lon", "lat")} if fixes is None else measured_turns(fixes)
+    """Marks {"time", "lon", "lat", "label", "measured"} in time order: the turns in the fixes and the planned
+    waypoints the aircraft passed (measured), and the planned waypoints still ahead of the newest fix."""
+    empty = dict.fromkeys(MARK_KEYS, np.array([]))
+    turns = empty if fixes is None else measured_turns(fixes)
     if plan is None:
         labels = [str(k + 1) for k in range(turns["time"].size)]
-        extra, measured = np.array([]), np.array([], bool)
+        extra, measured = empty, np.array([], bool)
     else:
         names = waypoint_labels(plan)
         belongs = match_plan(turns, plan)
@@ -246,8 +248,10 @@ def waypoint_marks(plan, fixes, departure_s, speed_ms):
         ahead = free & ~passed & (index > flown) & (times > newest)
         shown = np.flatnonzero(passed | ahead)
         labels += [names[k] for k in shown]
-        extra, measured = times[shown], passed[shown]
-    time = np.concatenate([turns["time"], extra])
+        extra = {"time": times[shown], **{key: plan[key][shown] for key in MARK_KEYS[1:]}}
+        measured = passed[shown]
+    marks = {key: np.concatenate([turns[key], extra[key]]) for key in MARK_KEYS}
     measured = np.concatenate([np.ones(turns["time"].size, bool), measured])
-    order = np.argsort(time, kind="stable")
-    return {"time": time[order], "label": [labels[k] for k in order], "measured": measured[order]}
+    order = np.argsort(marks["time"], kind="stable")
+    return {**{key: value[order] for key, value in marks.items()}, "label": [labels[k] for k in order],
+            "measured": measured[order]}
