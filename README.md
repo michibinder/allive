@@ -128,10 +128,11 @@ Format as observed on 11 November 2026 (server address: `SOURCE_URL` in `stream.
   hour after landing (3-hourly beyond +90 h, 6-hourly beyond +144 h).
 - Run: the newest 00 or 12 UTC run at or before take-off. The quicklook uses the newest downloaded
   run that covers the flight.
-- Access: an ECMWF API key in `~/.ecmwfapirc`. A key without real-time access receives a field 25 h
-  after its valid time, and `allive plan` prints that time. For a key with real-time access set
-  `EMBARGO_HOURS = None` in `src/allive/mars.py`; the default run is then also no newer than the
-  newest run in MARS (7 h after its base time), so a flight days ahead gets today's run.
+- Access: an ECMWF API key in `~/.ecmwfapirc`. The DLR key has had real-time access since
+  19 Nov 2026, so `EMBARGO_HOURS = None` in `src/allive/mars.py`: the default run is no newer than
+  the newest run in MARS (7 h after its base time), so a flight days ahead gets today's run. A key
+  without real-time access receives a field 25 h after its valid time; for such a key set
+  `EMBARGO_HOURS = 25`, and `allive plan` prints when the fields are released.
 - Virtual lidar: the model-level fields are interpolated linearly in time, latitude and longitude to
   the track and then to geometric height (0–80 km in 200 m steps); `w = −ω R T / (p g)`.
 

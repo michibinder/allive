@@ -115,10 +115,10 @@ def test_forecast_request(monkeypatch):
     assert (cfg["base"], cfg["steps"], cfg["area"]) == ("2026-11-10T00:00", [5, 6, 7, 8], "50/9/47/13")
     assert cfg["step_chunks"] == [(5, 8)] and cfg["parallel"] == 3
     first_valid = dt.datetime(2026, 11, 10, 5)
-    assert ifs.default_base(first_valid) == BASE
-    monkeypatch.setattr(mars, "EMBARGO_HOURS", None)
     monkeypatch.setattr(ifs, "utc_now", lambda: dt.datetime(2026, 11, 10, 3))
     assert ifs.default_base(first_valid) == dt.datetime(2026, 11, 9, 12)
+    monkeypatch.setattr(mars, "EMBARGO_HOURS", 25)
+    assert ifs.default_base(first_valid) == BASE
 
 
 def test_stream_formats():
