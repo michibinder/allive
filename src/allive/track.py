@@ -11,7 +11,6 @@ TRACK_KEYS = ("time", "lon", "lat", "alt")
 MARK_KEYS = TRACK_KEYS[:3]
 TRACK_STEP_S = 60.0
 DEFAULT_SPEED_MS = 230.0
-MIN_LOOP_SPAN = 4
 ROUTE_STEP_M = 2000.0
 MAX_OFF_ROUTE_M = 30000.0
 MAX_SPEED_FACTOR = 1.5
@@ -81,25 +80,22 @@ def leg_geometry(plan):
     return azimuth, length, np.concatenate([[0.0], np.cumsum(length)])
 
 
-def closed_loops(plan):
-    """(start, end) waypoint index pairs of closed loops without a loop inside."""
-    lon, lat = plan["lon"], plan["lat"]
-    n = lon.size
-    loops = [(i, j) for i in range(n) for j in range(i + MIN_LOOP_SPAN, n)
-             if np.isclose(lon[i], lon[j]) and np.isclose(lat[i], lat[j])]
-    return [(i, j) for i, j in loops
-            if not any(a >= i and b <= j and (a, b) != (i, j) for a, b in loops)]
+def route_times(distance, progress, departure_s, speed_ms):
+    """Unix time at distances along the planned route: interpolated between the on-route fixes of progress, at
+    the ground speed before and after them, from the departure without progress."""
+    if progress is None:
+        return departure_s + distance / speed_ms
+    times, along = progress
+    first = np.r_[True, np.diff(along) > 0]
+    passed = np.interp(distance, along[first], times[first])
+    before = times[0] - (along[0] - distance) / speed_ms
+    after = times[-1] + (distance - along[-1]) / speed_ms
+    return np.where(distance < along[0], before, np.where(distance > along[-1], after, passed))
 
 
-def circle_times(plan, departure_s, speed_ms):
-    """Unix time of the middle of every circle (innermost closed loop) of the flight plan."""
-    along = leg_geometry(plan)[2]
-    return np.array([departure_s + 0.5 * (along[i] + along[j]) / speed_ms
-                     for i, j in closed_loops(plan)])
-
-
-def planned_track(plan, departure_s, speed_ms, step_s):
-    """Great-circle track at constant ground speed, sampled every step_s, ending at the landing point."""
+def planned_track(plan, departure_s, speed_ms, step_s, progress=None):
+    """Great-circle track sampled every step_s at the ground speed, ending at the landing point, timed by the
+    progress along the route (route_times)."""
     lon, lat = plan["lon"], plan["lat"]
     azimuth, length, along = leg_geometry(plan)
     distance = np.arange(0.0, along[-1], speed_ms * step_s)
@@ -107,7 +103,7 @@ def planned_track(plan, departure_s, speed_ms, step_s):
     leg = np.clip(np.searchsorted(along, distance, side="right") - 1, 0, len(length) - 1)
     lon_t, lat_t, _ = GEOD.fwd(lon[leg], lat[leg], azimuth[leg], distance - along[leg])
     return {
-        "time": departure_s + distance / speed_ms,
+        "time": route_times(distance, progress, departure_s, speed_ms),
         "lon": lon_t,
         "lat": lat_t,
         "alt": np.interp(distance, along, plan["alt"]),
@@ -127,13 +123,15 @@ def extended_grid(time, first, last):
     return np.concatenate([before, time, after])
 
 
-def merge_fixes(track, fixes):
-    """Planned track with the measured fixes interpolated in between their first and last time."""
-    grid = extended_grid(track["time"], fixes["time"][0], fixes["time"][-1])
-    first = min(fixes["time"][0], track["time"][0])
-    last = max(fixes["time"][-1], track["time"][-1])
-    time = np.union1d(grid[(grid >= first) & (grid <= last)], fixes["time"][[0, -1]])
-    measured = (time >= fixes["time"][0]) & (time <= fixes["time"][-1])
+def merge_fixes(track, fixes, grid):
+    """Track with the measured fixes interpolated in between their first and last time, there and in a gap
+    to the track at the times of the grid continued at its first step."""
+    first, last = fixes["time"][0], fixes["time"][-1]
+    grid = extended_grid(grid, first, last)
+    outside = (track["time"] < first) | (track["time"] > last)
+    filled = (grid >= min(first, track["time"][-1])) & (grid <= max(last, track["time"][0]))
+    time = np.union1d(np.r_[track["time"][outside], grid[filled]], [first, last])
+    measured = (time >= first) & (time <= last)
     merged = {"time": time}
     for key in TRACK_KEYS[1:]:
         merged[key] = np.interp(time, track["time"], track[key])
@@ -142,11 +140,13 @@ def merge_fixes(track, fixes):
 
 
 def route_progress(plan, fixes, departure_s, speed_ms):
-    """(time, distance along the planned route) of the fixes that lie on the route, never decreasing."""
+    """(time, distance along the planned route) of the fixes at cruise altitude that lie on the route, never
+    decreasing, or None without any."""
     route = planned_track(plan, 0.0, 1.0, ROUTE_STEP_M)
     along = route["time"]
+    cruise = fixes["alt"] >= MIN_TURN_ALTITUDE_M
     times, found = [], []
-    for when, lon, lat in zip(fixes["time"], fixes["lon"], fixes["lat"]):
+    for when, lon, lat in zip(fixes["time"][cruise], fixes["lon"][cruise], fixes["lat"][cruise]):
         _, _, off = GEOD.inv(np.full(along.size, lon), np.full(along.size, lat), route["lon"], route["lat"])
         near = off <= MAX_OFF_ROUTE_M
         if found:
@@ -155,28 +155,11 @@ def route_progress(plan, fixes, departure_s, speed_ms):
             cost = off
         else:
             near &= off <= off.min() + ROUTE_STEP_M
-            cost = np.abs(departure_s + along / speed_ms - when)
+            cost = np.abs(route_times(along, None, departure_s, speed_ms) - when)
         if near.any():
             times.append(when)
             found.append(along[np.flatnonzero(near)[np.argmin(cost[near])]])
-    return np.array(times), np.array(found)
-
-
-def waypoint_times(plan, fixes, departure_s, speed_ms):
-    """Unix time at every waypoint: from the fixes between the first and last one on the route, else at
-    the ground speed from the nearest of them or from the departure."""
-    target = leg_geometry(plan)[2]
-    planned = departure_s + target / speed_ms
-    if fixes is None:
-        return planned
-    times, along = route_progress(plan, fixes, departure_s, speed_ms)
-    if not times.size:
-        return planned
-    first = np.r_[True, np.diff(along) > 0]
-    passed = np.interp(target, along[first], times[first])
-    before = times[0] - (along[0] - target) / speed_ms
-    after = times[-1] + (target - along[-1]) / speed_ms
-    return np.where(target < along[0], before, np.where(target > along[-1], after, passed))
+    return (np.array(times), np.array(found)) if times else None
 
 
 def course_change(before, after):
@@ -231,7 +214,7 @@ def passed_waypoints(plan, fixes, times):
     return passed
 
 
-def waypoint_marks(plan, fixes, departure_s, speed_ms):
+def waypoint_marks(plan, fixes, progress, departure_s, speed_ms):
     """Marks {"time", "lon", "lat", "label", "measured"} in time order: the turns in the fixes and the planned
     waypoints the aircraft passed (measured), and the planned waypoints still ahead of the newest fix."""
     empty = dict.fromkeys(MARK_KEYS, np.array([]))
@@ -243,7 +226,7 @@ def waypoint_marks(plan, fixes, departure_s, speed_ms):
         names = waypoint_labels(plan)
         belongs = match_plan(turns, plan)
         labels = [names[k] if k >= 0 else UNPLANNED_LABEL for k in belongs]
-        times = waypoint_times(plan, fixes, departure_s, speed_ms)
+        times = route_times(leg_geometry(plan)[2], progress, departure_s, speed_ms)
         index = np.arange(times.size)
         free = ~np.isin(index, belongs)
         passed = free & (False if fixes is None else passed_waypoints(plan, fixes, times))

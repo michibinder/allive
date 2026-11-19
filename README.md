@@ -52,13 +52,20 @@ allive download plans/flight.ftml --departure 2026-11-15T15:30
 - `plot DIRECTORY` draws from a directory with `T.txt`, `w.txt`, `u.txt` and `v.txt`, for example an
   archived flight.
 - `--flight` with `--departure` (UTC) adds the planned track: the IFS curtains, the aircraft altitude
-  and the planned wind circles. `--speed` sets the ground speed (default 230 m/s). The flight plan is
-  an FTML file (waypoints with flight levels, as written by the Mission Support System) or a KML file;
-  from a KML the named points are read in file order, with border crossings left out. Only the profiles
-  of that flight are drawn: from 3 h before the planned start to 3 h after the planned end, and on to the
-  newest profile of any run of profiles (no gap over 2 h) that reaches into this window. A flight longer
-  than planned is so drawn to its end; another flight in the same files stays out unless it reaches into
-  this window or follows within 2 h.
+  and the IFS wind profiles at the planned waypoints. `--speed` sets the ground speed (default 230 m/s).
+  Between the first and the newest profile the track is the measured one. Before and after that, the
+  route is flown at this speed: to the first and from the last profile taken at cruise altitude (above
+  7 km) within 30 km of the route, and from the departure time while there is no such profile, for
+  example on the ground. A delay therefore shifts the IFS curtain ahead, the planned waypoints and the
+  end of the time axis. The IFS download keeps to the departure time (from the planned take-off to one
+  hour after the planned landing), so its file names do not change during the flight, and a track that
+  runs past these hours has no IFS there. The flight plan is an FTML file (waypoints with flight
+  levels, as written by the Mission Support System) or a KML file; from a KML the named points are read
+  in file order, with border crossings left out. Only the profiles of that flight are drawn: from 3 h
+  before the planned start to 3 h after the planned end, and on to the newest profile of any run of
+  profiles (no gap over 2 h) that reaches into this window. A flight longer than planned is so drawn to
+  its end; another flight in the same files stays out unless it reaches into this window or follows
+  within 2 h.
 - `plan` prints the MARS requests of a flight and the time their data are released. It sends nothing.
   `download` sends the requests and converts the result. Both take `--base 2026-11-13T00` to choose
   the forecast run.
@@ -69,26 +76,41 @@ Further options of `plot`:
 |---|---|
 | `--panels t tp w u v` | rows from top to bottom (default: all five) |
 | `--hours H` | only the last H hours |
-| `--zlim A B` | altitude range in km (default: the range with valid measurements) |
-| `--time HH:MM` or an ISO time | time of the cursor and the profiles (default: the newest profile) |
+| `--zlim A B` | altitude range in km (default: 20 85) |
+| `--time HH:MM` or ISO | cursor and profile time (default: newest profile, else take-off + 30 min) |
 | `--ifs-only` | do not read the measurements |
 | `--above-aircraft` | height grids without explicit heights start at the aircraft, not at sea level |
 
 ## The figure
 
+- The time axis starts 30 min before the first profile with valid values (without one: at the start of
+  the track) and ends at the end of the track or at the newest such profile, whichever is later. All
+  rows show 20–85 km altitude unless `--zlim` is given.
 - The rows T, T′ and w are curtains: a time–height panel, a narrow panel with the profiles at the
   cursor (IFS green, ALIMA red), and a colorbar. IFS is drawn first and ALIMA on top of it. T′ is the temperature after a
   5th-order Butterworth high-pass in the vertical with a cutoff of 20 km, for ALIMA and IFS alike.
   Its colour scale is logarithmic: one colour per doubling from 1 to 32 K, white below 1 K.
+- The colour scales are fixed, and the x ranges of the profile panels equal them: T 180–300 K, T′ ±32 K,
+  w ±4 m/s. Figures of different flights therefore compare directly, and the axes do not change when
+  the measurements come in. A profile that leaves the range runs off the panel edge, and one wholly
+  beyond it does not show in the profile panel (as often for the measured w). The T range is the
+  0.1–99.9 % range of the ALIMA temperatures of 18 Nov 2026 (184–292 K), rounded outward to 10 K.
 - In a row that shows measurements over the IFS, faded grey contour lines keep the IFS field visible:
   every 10 K for T, 1 K for T′ and 0.2 m/s for w, solid for positive and dashed for negative values.
   A line of the notes names these steps.
-- The dashed cursor marks the newest measured profile, with the aircraft symbol centred on it. The
-  label of the first profile panel gives its time.
+- The dashed cursor marks the newest measured profile, with the aircraft symbol centred on it. Without
+  measurements it sits 30 min after take-off, about where the first profile is expected, so an IFS-only
+  figure reads as a forecast. The label of the first profile panel gives its time.
 - The rows u and v show wind profiles in small sub-axes at the time of their measurement. Profiles at
   most 15 min apart share one sub-axes. A sub-axes with two or more profiles has a legend with their
-  times at its lower centre, in the first wind row only. With a flight plan, every planned circle
-  ahead of the aircraft shows the IFS profile.
+  times at its lower centre, in the first wind row only. With IFS data, every sub-axes of measured
+  profiles also shows the IFS profile, and every planned waypoint still ahead of the aircraft (in an
+  IFS-only figure: every waypoint of the plan) gets a sub-axes with the IFS profile at its time, unless
+  that sub-axes would stick out of the panel, the waypoint lies within 15 min of a measured profile, or
+  it lies within one sub-axes width (a tenth of the time axis) of the previous waypoint that got one. The
+  next waypoint ahead therefore keeps its sub-axes. Where sub-axes overlap, the layout moves them apart,
+  so they can sit off their times (by up to about 13 min with the wind timing of the past flights); the
+  legends give the measured times.
 - Waypoints are marked in the first time-height panel by a tick above the time axis with a boxed label
   at the height of the aircraft symbol, and by a thin dotted line through the time-height panels of the
   rows T, T′ and w.
@@ -140,7 +162,7 @@ Format as observed on 11 November 2026 (server address: `SOURCE_URL` in `stream.
 
 | module | content |
 |---|---|
-| `track.py` | flight plan → track, planned circles |
+| `track.py` | flight plan → track, progress along the route, waypoint marks |
 | `mars.py` | MARS requests of one forecast run, download, GRIB → netCDF |
 | `levels.py` | model levels → pressure and geometric height |
 | `ifs.py` | request for a flight, IFS curtains along the track |

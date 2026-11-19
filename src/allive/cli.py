@@ -61,8 +61,9 @@ def add_plot_parser(commands):
                    "and redraw when any file changed")
     p.add_argument("--hours", type=float,
                    help="show only the last H hours of measurements (of the track when there are none)")
-    p.add_argument("--zlim", nargs=2, type=float, metavar=("ZMIN_KM", "ZMAX_KM"),
-                   help="fixed altitude limits in km (default: automatic)")
+    p.add_argument("--zlim", nargs=2, type=float, default=quicklook.DEFAULT_ZLIM_KM,
+                   metavar=("ZMIN_KM", "ZMAX_KM"),
+                   help="altitude limits in km (default: {:g} {:g})".format(*quicklook.DEFAULT_ZLIM_KM))
     p.add_argument("--panels", nargs="+", choices=list(FIELDS), default=quicklook.DEFAULT_PANELS,
                    help="panel rows from top to bottom (t, tp, w, u, v)")
     p.add_argument("--above-aircraft", action="store_true",
@@ -71,7 +72,7 @@ def add_plot_parser(commands):
                    help="flight plan (.ftml or .kml) for the IFS virtual curtains")
     add_flight_arguments(p, required=False)
     p.add_argument("--time", type=clock_or_iso, metavar="WHEN", help="cursor and profile time: HH, "
-                   "HH:MM or ISO UTC (default: newest measured profile, else the end of the flight)")
+                   "HH:MM or ISO UTC (default: newest measured profile, else 30 min after take-off)")
     p.add_argument("--ifs-only", action="store_true", help="do not read the measurements")
     p.set_defaults(handler=partial(run_plot, p))
 

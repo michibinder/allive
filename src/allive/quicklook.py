@@ -12,16 +12,15 @@ from allive.ifs import downloaded_config, flight_config, virtual_curtains
 from allive.mars import netcdf_files
 from allive.paths import figure_dir
 from allive.stream import (VALID_RANGE, archive, build_curtain, describe, fetch_all, flight_profiles,
-                           flight_stamp, height_range_km, is_url, measured_fixes, newest_profile,
-                           parse_profiles)
-from allive.track import (TRACK_KEYS, TRACK_STEP_S, circle_times, merge_fixes, planned_track,
-                          read_flight_plan, waypoint_marks)
+                           flight_stamp, is_url, measured_fixes, newest_profile, parse_profiles)
+from allive.track import (TRACK_KEYS, TRACK_STEP_S, merge_fixes, planned_track, read_flight_plan,
+                          route_progress, waypoint_marks)
 from allive.utc import log_utc, utc_datetime, utc_seconds
 
 IFS_VARIABLES = {"T.txt": "t", "w.txt": "w", "u.txt": "u", "v.txt": "v"}
 TIME_MARGIN = 0.02
-ZLIM_FALLBACK_KM = (15.0, 90.0)
-ZLIM_STEP_KM = 5.0
+MEASURED_LEAD_S = 1800.0
+DEFAULT_ZLIM_KM = (20.0, 85.0)
 DEFAULT_WATCH_S = 60.0
 DEFAULT_PANELS = ("t", "tp", "w", "u", "v")
 
@@ -46,56 +45,39 @@ def panel_layers(curtains, ifs, panels):
     return layers
 
 
-def source_curtains(layers, source):
-    """Curtains of one source over all panels."""
-    return [panel[source] for panel in layers.values() if source in panel]
-
-
-def measured_span(parsed):
-    """(left edge of the first, right edge of the last) profile cell over all files, or None."""
-    edges = [cell_edges(raw["time"]) for raw in parsed.values() if raw is not None]
+def measured_span(curtains):
+    """(left edge of the first, right edge of the last) cell of the profiles with valid values over all
+    files, or None."""
+    times = [c["time"][np.isfinite(c["data"]).any(axis=1)] for c in curtains.values() if c is not None]
+    edges = [cell_edges(t) for t in times if t.size]
     if not edges:
         return None
     return min(left[0] for left, _ in edges), max(right[-1] for _, right in edges)
 
 
 def time_limits(span, track, hours):
-    """(start, end) of the time axis in unix seconds: track and measurements, else now; the last
-    hours end at the newest measurement, else at the end of the track."""
+    """(start, end) of the time axis in unix seconds: from MEASURED_LEAD_S before the measurements (else the
+    track start) to the later end of both, else now; the last hours end at the newest measurement if any."""
     spans = [] if span is None else [span]
     if track is not None:
         spans.append((track["time"][0], track["time"][-1]))
     if not spans:
         now = time.time()
         return now - 3600.0, now
-    start, end = min(s[0] for s in spans), max(s[1] for s in spans)
+    start = track["time"][0] if span is None else span[0] - MEASURED_LEAD_S
+    end = max(s[1] for s in spans)
     if hours:
         end = end if span is None else span[1]
         start = end - hours * 3600.0
     return start, end + TIME_MARGIN * (end - start)
 
 
-def height_limits(layers, window_s, zlim):
-    """Altitude limits in km: given, else the measured range widened to ZLIM_STEP_KM, else IFS."""
-    if zlim:
-        return tuple(zlim)
-    measured = source_curtains(layers, "ALIMA")
-    ranges = [r for r in (height_range_km(c, window_s) for c in measured) if r]
-    if ranges:
-        low = np.floor(min(r[0] for r in ranges) / ZLIM_STEP_KM) * ZLIM_STEP_KM
-        high = np.ceil(max(r[1] for r in ranges) / ZLIM_STEP_KM) * ZLIM_STEP_KM
-        return (low, high) if high > low else (low, low + ZLIM_STEP_KM)
-    ifs = source_curtains(layers, "IFS")
-    if ifs:
-        return ifs[0]["z"][0] / 1000.0, ifs[0]["z"][-1] / 1000.0
-    return ZLIM_FALLBACK_KM
-
-
 def cursor_time(when, window_s, latest, track):
     """Cursor in unix seconds: given (the window centre, with a log line, for a clock time outside
-    the window), else the newest measured profile, else the track's end."""
+    the window), else the newest measured profile, else MEASURED_LEAD_S after the track's start or the
+    window start, whichever is later."""
     if when is None:
-        return latest if latest is not None else track["time"][-1]
+        return latest if latest is not None else max(track["time"][0] + MEASURED_LEAD_S, window_s[0])
     if isinstance(when, dt.datetime):
         return utc_seconds(when)
     window = tuple(utc_datetime(s) for s in window_s)
@@ -143,17 +125,17 @@ def track_point(path, when_s):
     return {key: float(np.interp(when_s, path["time"], path[key])) for key in TRACK_KEYS[1:]}
 
 
-def flight_data(args, plan, planned, fixes):
-    """(track, IFS curtains, note lines, times of the planned circles after the newest fix) of the planned
-    flight; no track, curtains, lines or circles without one."""
+def flight_data(args, plan, planned, fixes, progress):
+    """(track, IFS curtains, note lines) of the planned flight: the route timed by the progress along it with
+    the fixes merged in, the IFS run chosen for the planned track; no track, curtains or lines without one."""
     if planned is None:
-        return None, None, [], np.array([])
-    track = planned if fixes is None else merge_fixes(planned, fixes)
+        return None, None, []
+    track = planned_track(plan, args.departure, args.speed, TRACK_STEP_S, progress)
+    if fixes is not None:
+        track = merge_fixes(track, fixes, planned["time"])
     cfg = downloaded_config(args.flight, planned) or flight_config(args.flight, planned)
     ifs = ifs_layer(args, cfg, track)
-    circles = circle_times(plan, args.departure, args.speed)
-    ahead = circles if fixes is None else circles[circles > fixes["time"][-1]]
-    return track, ifs, flight_note(args, cfg, ifs), ahead
+    return track, ifs, flight_note(args, cfg, ifs)
 
 
 def output_path(args, stamp):
@@ -180,19 +162,19 @@ def process(payloads, args):
         for name in VALID_RANGE:
             log_utc(describe(name, parsed[name], curtains[name]))
     fixes = measured_fixes(parsed)
-    track, ifs, note, circles_s = flight_data(args, plan, planned, fixes)
-    waypoints = waypoint_marks(plan, fixes, args.departure, args.speed)
+    progress = route_progress(plan, fixes, args.departure, args.speed) if plan and fixes else None
+    track, ifs, note = flight_data(args, plan, planned, fixes, progress)
+    waypoints = waypoint_marks(plan, fixes, progress, args.departure, args.speed)
     layers = panel_layers(curtains, ifs, args.panels)
     latest = newest_profile(parsed)
-    xlim_s = time_limits(measured_span(parsed), track, args.hours)
-    zlim_km = height_limits(layers, xlim_s, args.zlim)
+    xlim_s = time_limits(measured_span(curtains), track, args.hours)
     has_data = any(layers.values()) or latest is not None
     cursor_s = cursor_time(args.time, xlim_s, latest, track) if has_data else None
     aircraft = track_point(fixes if track is None else track, cursor_s)
-    view = {"xlim_s": xlim_s, "zlim_km": zlim_km, "cursor_s": cursor_s,
+    view = {"xlim_s": xlim_s, "zlim_km": tuple(args.zlim), "cursor_s": cursor_s,
             "aircraft_km": aircraft and aircraft["alt"] / 1000.0, "waypoints": waypoints, "plan": plan,
             "fixes": fixes, "position": track_point(fixes, cursor_s)}
-    path = render(layers, view, circles_s, note + contour_key(layers), output_path(args, stamp))
+    path = render(layers, view, note + contour_key(layers), output_path(args, stamp))
     log_utc(f"saved {path}")
 
 

@@ -18,7 +18,7 @@ from allive import style
 from allive.filters import VERT_CUTOFF_KM
 from allive.utc import time_clusters, utc_datetime
 
-TEMP_CLIM = (190.0, 280.0)
+TEMP_CLIM = (180.0, 300.0)
 TEMP_CMAP = "turbo"
 PERT_LEVELS = (-32.0, -16.0, -8.0, -4.0, -2.0, -1.0, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
 PERT_CBAR_TICKS = (-16.0, -4.0, -1.0, 1.0, 4.0, 16.0)
@@ -160,7 +160,7 @@ def step_ticks(low, high, step):
 
 
 def profile_limits(shown, spec):
-    """x limits of a profile panel: the colour limits, widened in tick steps to hold the values."""
+    """x limits of the wind sub-axes: the colour limits, widened in tick steps to hold the values."""
     values = np.concatenate([np.ravel(spec["clim"]), *(v[np.isfinite(v)] for v in shown)])
     return (min(spec["clim"][0], np.floor(values.min() / spec["step"]) * spec["step"]),
             max(spec["clim"][1], np.ceil(values.max() / spec["step"]) * spec["step"]))
@@ -212,9 +212,9 @@ def group_profiles(panel, time_s, rows):
     return found + [("ALIMA", panel["ALIMA"], int(i)) for i in rows]
 
 
-def wind_groups(panel, circles_s, xlim_s):
-    """Groups {"time", "profiles"} of a wind row sorted by time: clusters of the measured profiles,
-    then of the planned circles farther than WIND_GROUP_GAP_S from all of them."""
+def wind_groups(panel, planned_s, xlim_s, width_s):
+    """Groups {"time", "profiles"} of a wind row sorted by time: clusters of the measured profiles, then the
+    planned times whose sub-axes fit, WIND_GROUP_GAP_S from measured and width_s from earlier ones."""
     measured, found = np.array([]), []
     if "ALIMA" in panel:
         curtain = panel["ALIMA"]
@@ -223,9 +223,12 @@ def wind_groups(panel, circles_s, xlim_s):
         measured = curtain["time"][rows]
         found += [(measured[part].mean(), rows[part]) for part in time_clusters(measured, WIND_GROUP_GAP_S)]
     if "IFS" in panel:
-        planned = np.sort([t for t in circles_s if xlim_s[0] <= t <= xlim_s[1]
-                           and np.all(np.abs(measured - t) > WIND_GROUP_GAP_S)])
-        found += [(planned[part].mean(), []) for part in time_clusters(planned, WIND_GROUP_GAP_S)]
+        kept, half = np.array([]), width_s / 2.0
+        for t in np.sort(planned_s):
+            if (xlim_s[0] + half <= t <= xlim_s[1] - half and np.all(np.abs(measured - t) > WIND_GROUP_GAP_S)
+                    and np.all(np.abs(kept - t) > width_s)):
+                kept = np.append(kept, t)
+                found.append((t, []))
     return sorted(({"time": t, "profiles": group_profiles(panel, t, rows)} for t, rows in found),
                   key=lambda group: group["time"])
 
@@ -252,12 +255,13 @@ def half_range(groups, spec, zlim_km):
     return max(-low, high)
 
 
-def wind_layout(layers, circles_s, view):
+def wind_layout(layers, view):
     """Sub-axes width in s, the half x range common to all sub-axes, the placed groups of every wind
-    row and the row that carries the legends (the first)."""
-    xlim_s = view["xlim_s"]
+    row with the planned waypoints still ahead, and the row that carries the legends (the first)."""
+    xlim_s, marks = view["xlim_s"], view["waypoints"]
     width = WIND_INSET_FRACTION * (xlim_s[1] - xlim_s[0])
-    rows = {key: place_groups(wind_groups(panel, circles_s, xlim_s), width, xlim_s)
+    planned_s = marks["time"][~marks["measured"]]
+    rows = {key: place_groups(wind_groups(panel, planned_s, xlim_s, width), width, xlim_s)
             for key, panel in layers.items() if not FIELDS[key]["curtain"]}
     half = max((half_range(groups, FIELDS[key], view["zlim_km"]) for key, groups in rows.items()),
                default=0.0)
@@ -405,16 +409,14 @@ def draw_wind_row(ax, groups, wind, spec, legends):
     ax.grid(True, axis="y")
 
 
-def draw_profiles(ax, layers, spec, cursor_s, zlim_km):
-    """Profile of every layer nearest to the cursor; x range and ticks follow the colour scale."""
-    shown = []
+def draw_profiles(ax, layers, spec, cursor_s):
+    """Profile of every layer nearest to the cursor on the fixed x range and ticks of the colour scale."""
     for source, curtain in layers.items():
         i = nearest_row(curtain, cursor_s)
         ax.plot(curtain["data"][i], curtain["z"] / 1000.0, color=SOURCE_COLORS[source], lw=PROF_LW)
-        shown.append(shown_values(curtain, i, zlim_km))
     if spec["zero_line"]:
         ax.axvline(0.0, **ZERO_LINE_KW)
-    style_profile_ticks(ax, *profile_limits(shown, spec), spec["step"])
+    style_profile_ticks(ax, *spec["clim"], spec["step"])
 
 
 def draw_curtain_row(ax, profile_ax, panel, spec, view):
@@ -426,7 +428,7 @@ def draw_curtain_row(ax, profile_ax, panel, spec, view):
     if not panel:
         empty_panel(ax, NO_DATA_NOTE)
     add_colorbar(profile_ax.inset_axes(COLORBAR_BOUNDS), spec)
-    draw_profiles(profile_ax, panel, spec, view["cursor_s"], view["zlim_km"])
+    draw_profiles(profile_ax, panel, spec, view["cursor_s"])
     profile_ax.tick_params(labelleft=False)
     profile_ax.grid(True)
     ax.grid(True)
@@ -632,14 +634,14 @@ def draw_rows(fig, layers, view, wind):
     return top, wind_rows, waypoint_texts
 
 
-def render(layers, view, circles_s, notes, out):
+def render(layers, view, notes, out):
     """Draw one row per quantity, the notes and the track sketch and save the figure atomically to out."""
     with plt.style.context(style.STYLE_SHEET):
         fig = plt.figure(layout="constrained", figsize=(FIGURE_WIDTH_IN, PANEL_HEIGHT_IN * len(layers)),
                          dpi=DPI)
         tmp = out.with_name(f"{out.stem}.{os.getpid()}.tmp.png")
         try:
-            wind = wind_layout(layers, circles_s, view)
+            wind = wind_layout(layers, view)
             top, wind_rows, waypoint_texts = draw_rows(fig, layers, view, wind)
             top.set_xlim(seconds_to_num(view["xlim_s"][0]), seconds_to_num(view["xlim_s"][1]))
             top.set_ylim(*view["zlim_km"])

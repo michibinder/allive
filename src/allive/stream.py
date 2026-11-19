@@ -143,13 +143,10 @@ def build_curtain(raw, valid, above_aircraft):
     return {"time": raw["time"], "z": z, "dz": dz, "data": data}
 
 
-def height_range_km(curtain, window_s=None):
+def height_range_km(curtain):
     """(lowest, highest) level in km valid in at least MIN_LEVEL_FRACTION of the profiles."""
-    rows = np.ones(curtain["time"].size, bool)
-    if window_s is not None:
-        rows = (curtain["time"] >= window_s[0]) & (curtain["time"] <= window_s[1])
-    counts = np.isfinite(curtain["data"][rows]).sum(axis=0)
-    levels = counts >= max(1.0, MIN_LEVEL_FRACTION * rows.sum())
+    counts = np.isfinite(curtain["data"]).sum(axis=0)
+    levels = counts >= max(1.0, MIN_LEVEL_FRACTION * curtain["time"].size)
     if not levels.any():
         return None
     z = curtain["z"][levels] / 1000.0
