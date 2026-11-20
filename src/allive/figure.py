@@ -10,7 +10,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 from matplotlib import patheffects
 from matplotlib.cm import ScalarMappable
-from matplotlib.colors import BoundaryNorm, Normalize
+from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize
 from matplotlib.transforms import Bbox
 from scipy.optimize import isotonic_regression
 
@@ -117,19 +117,35 @@ def colour_norm(spec):
     return Normalize(*spec["clim"])
 
 
+def draw_cells(ax, time_s, z_edges, cells, **mesh_kw):
+    """One flat pcolormesh of the profile cells (rows: heights, columns: profiles), blank between them."""
+    left, right = cell_edges(time_s)
+    x_edges = np.empty(2 * left.size)
+    x_edges[0::2], x_edges[1::2] = left, right
+    values = np.full((cells.shape[0], x_edges.size - 1), np.nan)
+    values[:, 0::2] = cells
+    ax.pcolormesh(seconds_to_num(x_edges), z_edges, values, shading="flat", rasterized=True, **mesh_kw)
+
+
 def draw_curtain(ax, curtain, spec):
     """One pcolormesh of the curtain with transparent gaps between non-contiguous profiles."""
-    left, right = cell_edges(curtain["time"])
-    n = left.size
-    x_edges = np.empty(2 * n)
-    x_edges[0::2], x_edges[1::2] = left, right
-    values = np.full((curtain["z"].size, 2 * n - 1), np.nan)
-    values[:, 0::2] = curtain["data"].T
     z_km = curtain["z"] / 1000.0
     half = curtain["dz"] / 2000.0
     z_edges = np.append(z_km - half, z_km[-1] + half)
-    ax.pcolormesh(seconds_to_num(x_edges), z_edges, values, shading="flat", rasterized=True,
-                  cmap=spec["cmap"], norm=colour_norm(spec))
+    draw_cells(ax, curtain["time"], z_edges, curtain["data"].T, cmap=spec["cmap"], norm=colour_norm(spec))
+
+
+def finite_profiles(curtain):
+    """Boolean per profile of the curtain: at least one finite value."""
+    return np.isfinite(curtain["data"]).any(axis=1)
+
+
+def hide_under_measurements(ax, curtain, view):
+    """Opaque mask in the axes colour over the full panel height of the measured profiles' cells up to the
+    cursor."""
+    measured = finite_profiles(curtain) & (curtain["time"] <= view["cursor_s"])
+    draw_cells(ax, curtain["time"], view["zlim_km"], np.where(measured, 0.0, np.nan)[None],
+               cmap=ListedColormap([ax.get_facecolor()]))
 
 
 def has_contours(spec, panel):
@@ -420,8 +436,11 @@ def draw_profiles(ax, layers, spec, cursor_s):
 
 
 def draw_curtain_row(ax, profile_ax, panel, spec, view):
-    """Curtain layers, IFS contour lines over measurements, colorbar and cursor profiles of one quantity."""
-    for curtain in panel.values():
+    """Curtain layers with the IFS colours hidden under the measurements, IFS contour lines, colorbar and
+    cursor profiles of one quantity."""
+    for source, curtain in panel.items():
+        if source == "ALIMA" and has_contours(spec, panel):
+            hide_under_measurements(ax, curtain, view)
         draw_curtain(ax, curtain, spec)
     if has_contours(spec, panel):
         draw_contours(ax, panel["IFS"], spec)

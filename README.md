@@ -97,7 +97,9 @@ Further options of `plot`:
   0.1–99.9 % range of the ALIMA temperatures of 18 Nov 2026 (184–292 K), rounded outward to 10 K.
 - In a row that shows measurements over the IFS, faded grey contour lines keep the IFS field visible:
   every 10 K for T, 1 K for T′ and 0.2 m/s for w, solid for positive and dashed for negative values.
-  A line of the notes names these steps.
+  A line of the notes names these steps. Left of the cursor, the times of the profiles with valid values
+  show only the measurement colours under the contour lines: there the IFS colours are left out over the
+  full height, elsewhere they stay.
 - The dashed cursor marks the newest measured profile, with the aircraft symbol centred on it. Without
   measurements it sits 30 min after take-off, about where the first profile is expected, so an IFS-only
   figure reads as a forecast. The label of the first profile panel gives its time.

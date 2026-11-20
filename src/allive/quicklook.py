@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from allive.figure import FIELDS, cell_edges, contour_key, render
+from allive.figure import FIELDS, cell_edges, contour_key, finite_profiles, render
 from allive.filters import vertical_primes
 from allive.ifs import downloaded_config, flight_config, virtual_curtains
 from allive.mars import netcdf_files
@@ -48,7 +48,7 @@ def panel_layers(curtains, ifs, panels):
 def measured_span(curtains):
     """(left edge of the first, right edge of the last) cell of the profiles with valid values over all
     files, or None."""
-    times = [c["time"][np.isfinite(c["data"]).any(axis=1)] for c in curtains.values() if c is not None]
+    times = [c["time"][finite_profiles(c)] for c in curtains.values() if c is not None]
     edges = [cell_edges(t) for t in times if t.size]
     if not edges:
         return None
