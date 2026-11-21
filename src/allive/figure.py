@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib import patheffects
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize
-from matplotlib.transforms import Bbox
+from matplotlib.transforms import Affine2D, Bbox, IdentityTransform, offset_copy
 from scipy.optimize import isotonic_regression
 
 from allive import style
@@ -70,21 +70,32 @@ PROFILE_TICK_PAD_PT = -14.0
 PROFILE_TICK_BOX = {"boxstyle": "square,pad=0.1", "facecolor": "white", "edgecolor": "none",
                     "alpha": 0.8}
 ZERO_LINE_KW = {"color": "0.6", "lw": 0.6, "zorder": 1}
+ADIABAT_LAPSE_K_PER_KM = 9.8
+ADIABAT_BASES_KM = (60.0, 50.0)
+ADIABAT_LINE_KW = {"color": "0.45", "lw": 0.8, "ls": "--", "zorder": 1}
+ADIABAT_TEXT = f"\N{MINUS SIGN}{ADIABAT_LAPSE_K_PER_KM:g} K$\\,$km$^{{-1}}$"
+ADIABAT_ANGLE_DEG = np.degrees(np.arctan(-1.0 / ADIABAT_LAPSE_K_PER_KM))
+ADIABAT_LABEL_KW = {"color": "0.35", "fontsize": PROFILE_FONTSIZE, "zorder": 1.5, "clip_on": True,
+                    "rotation": ADIABAT_ANGLE_DEG, "rotation_mode": "anchor", "transform_rotates_text": True,
+                    "path_effects": [patheffects.withStroke(linewidth=2.0, foreground="white")]}
+ADIABAT_SPOTS = ((1, "right", "bottom", (-5.0, 2.0)), (0, "left", "top", (6.0, -4.5)))
+ADIABAT_LABEL_GAP_PT = 2.0
 CONTOUR_KW = {"colors": "0.55", "linewidths": 0.6, "alpha": 0.6, "negative_linestyles": "dashed",
               "zorder": 2}
 WIND_CMAP = style.vik_white_cmap()
 FIELDS = {
     "t": {"file": "T.txt", "label": "temperature", "cbar": "temperature / K",
           "cmap": TEMP_CMAP, "clim": TEMP_CLIM, "step": 20.0, "primes": False, "zero_line": False,
-          "curtain": True, "contours": (10.0, "K (T)")},
+          "adiabat": True, "curtain": True, "contours": (10.0, "K (T)")},
     "tp": {"file": "T.txt",
            "label": rf"$\mathbf{{T'}}$ ($\boldsymbol{{\lambda_z}} <$ {VERT_CUTOFF_KM:.0f} km)",
            "cbar": r"$T'$ / K", "cmap": PERT_CMAP, "clim": (PERT_LEVELS[0], PERT_LEVELS[-1]),
            "levels": PERT_LEVELS, "cbar_ticks": PERT_CBAR_TICKS, "step": 16.0,
-           "primes": True, "zero_line": False, "curtain": True, "contours": (1.0, "K (T′)")},
+           "primes": True, "zero_line": False, "adiabat": False, "curtain": True,
+           "contours": (1.0, "K (T′)")},
     "w": {"file": "w.txt", "label": r"$\mathbf{w}$", "cbar": r"$w$ / m$\,$s$^{-1}$",
           "cmap": WIND_CMAP, "clim": (-4.0, 4.0), "step": 2.0, "primes": False,
-          "zero_line": True, "curtain": True, "contours": (0.2, "m/s (w)")},
+          "zero_line": True, "adiabat": False, "curtain": True, "contours": (0.2, "m/s (w)")},
     "u": {"file": "u.txt", "label": r"$\mathbf{u}$ / m$\,$s$^{\mathbf{-1}}$", "clim": (-100.0, 100.0),
           "step": 50.0, "primes": False, "curtain": False},
     "v": {"file": "v.txt", "label": r"$\mathbf{v}$ / m$\,$s$^{\mathbf{-1}}$", "clim": (-100.0, 100.0),
@@ -359,9 +370,10 @@ def arrange_legends(ax, renderer):
             legend.get_frame().set_alpha(SEE_THROUGH_ALPHA)
 
 
-def crosses(box, line):
-    """True when a segment of a line passes a display box, judged by the box around the segment."""
-    xy = line.get_transform().transform(line.get_xydata())
+def crosses(box, line, display_transform=IdentityTransform()):
+    """True when a segment of a line, moved by display_transform after its own, passes a display box,
+    judged by the box around the segment."""
+    xy = display_transform.transform(line.get_transform().transform(line.get_xydata()))
     low, high = np.minimum(xy[:-1], xy[1:]), np.maximum(xy[:-1], xy[1:])
     return bool(np.any((low[:, 0] <= box.x1) & (high[:, 0] >= box.x0)
                        & (low[:, 1] <= box.y1) & (high[:, 1] >= box.y0)))
@@ -408,6 +420,50 @@ def finish_wind_panels(axes, renderer):
         see_through_labels(ax, renderer)
 
 
+def place_adiabat_label(text, spot):
+    """Put the adiabat label at a spot of the upper line: anchor at its right (1) or left (0) end, alignment
+    and offset in points."""
+    ax = text.axes
+    end, ha, va, (dx, dy) = spot
+    x = ax.get_xlim()[end]
+    text.set_position((x, ADIABAT_BASES_KM[0] + (ax.get_xlim()[1] - x) / ADIABAT_LAPSE_K_PER_KM))
+    text.set_ha(ha)
+    text.set_va(va)
+    text.set_transform(offset_copy(ax.transData, fig=ax.figure, x=dx, y=dy, units="points"))
+
+
+def adiabat_crossings(text, lines, renderer):
+    """Lines across the rotated label box and across it padded, as a tuple; None when the label is not
+    inside its axes or reaches another text of the axes."""
+    box = text.get_window_extent(renderer)
+    frame = text.axes.bbox
+    others = [text_box(o, renderer) for o in [*text.axes.texts, *text.axes.get_xticklabels()]
+              if o is not text and o.get_visible() and o.get_text()]
+    if (box.x0 < frame.x0 or box.x1 > frame.x1 or box.y0 < frame.y0 or box.y1 > frame.y1
+            or any(box.overlaps(other) for other in others)):
+        return None
+    angle = text.get_rotation()
+    x, y = text.get_transform().transform(text.get_position())
+    text.set_rotation(0.0)
+    flat = text.get_window_extent(renderer)
+    text.set_rotation(ADIABAT_ANGLE_DEG)
+    upright = Affine2D().rotate_deg_around(x, y, -angle)
+    boxes = (flat, flat.padded(renderer.points_to_pixels(ADIABAT_LABEL_GAP_PT)))
+    return tuple(sum(crosses(b, line, upright) for line in lines) for b in boxes)
+
+
+def arrange_adiabat_labels(adiabats, renderer):
+    """Put every adiabat label at the spot with the fewest profiles across it, then across its margin
+    (the first on a tie); at the first spot when none fits."""
+    for text, lines in adiabats:
+        counts = []
+        for spot in ADIABAT_SPOTS:
+            place_adiabat_label(text, spot)
+            counts.append(adiabat_crossings(text, lines, renderer))
+        fitting = [(count, k) for k, count in enumerate(counts) if count is not None]
+        place_adiabat_label(text, ADIABAT_SPOTS[min(fitting)[1] if fitting else 0])
+
+
 def draw_wind_row(ax, groups, wind, spec, legends):
     """One sub-axes per group of a wind row on the common x range, with a legend where asked for and the
     group has several profiles; altitude grid only."""
@@ -426,18 +482,28 @@ def draw_wind_row(ax, groups, wind, spec, legends):
 
 
 def draw_profiles(ax, layers, spec, cursor_s):
-    """Profile of every layer nearest to the cursor on the fixed x range and ticks of the colour scale."""
+    """Cursor profiles, colour-scale ticks and the zero line or adiabats of the field;
+    [(adiabat label, profile lines)], empty without adiabats."""
+    lines = []
     for source, curtain in layers.items():
         i = nearest_row(curtain, cursor_s)
-        ax.plot(curtain["data"][i], curtain["z"] / 1000.0, color=SOURCE_COLORS[source], lw=PROF_LW)
+        lines += ax.plot(curtain["data"][i], curtain["z"] / 1000.0, color=SOURCE_COLORS[source], lw=PROF_LW)
     if spec["zero_line"]:
         ax.axvline(0.0, **ZERO_LINE_KW)
     style_profile_ticks(ax, *spec["clim"], spec["step"])
+    if not spec["adiabat"]:
+        return []
+    for base in ADIABAT_BASES_KM:
+        ax.axline((spec["clim"][1], base), slope=-1.0 / ADIABAT_LAPSE_K_PER_KM, **ADIABAT_LINE_KW)
+    text = ax.text(0.0, 0.0, ADIABAT_TEXT, **ADIABAT_LABEL_KW)
+    text.set_in_layout(False)
+    place_adiabat_label(text, ADIABAT_SPOTS[0])
+    return [(text, lines)]
 
 
 def draw_curtain_row(ax, profile_ax, panel, spec, view):
     """Curtain layers with the IFS colours hidden under the measurements, IFS contour lines, colorbar and
-    cursor profiles of one quantity."""
+    cursor profiles of one quantity; returns the adiabat labels of draw_profiles."""
     for source, curtain in panel.items():
         if source == "ALIMA" and has_contours(spec, panel):
             hide_under_measurements(ax, curtain, view)
@@ -447,10 +513,11 @@ def draw_curtain_row(ax, profile_ax, panel, spec, view):
     if not panel:
         empty_panel(ax, NO_DATA_NOTE)
     add_colorbar(profile_ax.inset_axes(COLORBAR_BOUNDS), spec)
-    draw_profiles(profile_ax, panel, spec, view["cursor_s"])
+    adiabats = draw_profiles(profile_ax, panel, spec, view["cursor_s"])
     profile_ax.tick_params(labelleft=False)
     profile_ax.grid(True)
     ax.grid(True)
+    return adiabats
 
 
 def icon_height_km(aircraft_km, zlim_km):
@@ -616,29 +683,32 @@ def row_axes(fig, cells, top):
 
 
 def draw_row(panels, key, panel, view, wind):
-    """A curtain row with its profile panel or a wind row, with cursor and row label."""
+    """A curtain row with its profile panel or a wind row, with cursor and row label; returns the adiabat
+    labels of the row, none for a wind row."""
     spec = FIELDS[key]
+    adiabats = []
     if spec["curtain"]:
-        draw_curtain_row(*panels, panel, spec, view)
+        adiabats = draw_curtain_row(*panels, panel, spec, view)
     else:
         draw_wind_row(panels[0], wind["rows"][key], wind, spec, key == wind["legend_row"])
     draw_cursor(panels[0], view)
     style.add_corner_label(panels[0], spec["label"], x=CURTAIN_LABEL_X)
     panels[0].set_ylabel("altitude / km")
+    return adiabats
 
 
 def draw_rows(fig, layers, view, wind):
     """All rows from top to bottom; (top time-height axes, [(time-height axes, free right-column cell)]
-    of the wind rows, waypoint label texts of the first row)."""
+    of the wind rows, waypoint label texts of the first row, [(adiabat label, profile lines)])."""
     grid = fig.add_gridspec(len(layers), 2, width_ratios=(CURTAIN_WIDTH_RATIO, 1.0))
     letters = iter(string.ascii_lowercase)
     first_curtain = next((key for key in layers if FIELDS[key]["curtain"]), None)
-    top, wind_rows, waypoint_texts = None, [], []
+    top, wind_rows, waypoint_texts, adiabats = None, [], [], []
     for row, (key, panel) in enumerate(layers.items()):
         curtain = FIELDS[key]["curtain"]
         panels = row_axes(fig, (grid[row, 0], grid[row, 1]) if curtain else (grid[row, 0],), top)
         top = panels[0] if top is None else top
-        draw_row(panels, key, panel, view, wind)
+        adiabats += draw_row(panels, key, panel, view, wind)
         if curtain and view["waypoints"]["time"].size:
             draw_waypoint_lines(panels[0], view["waypoints"], view)
         if row == 0 and view["waypoints"]["time"].size:
@@ -650,7 +720,7 @@ def draw_rows(fig, layers, view, wind):
             style.add_mirrored_label(panels[1], f"{utc_datetime(view['cursor_s']):%H:%M} UTC", marks[1])
         panels[0].tick_params(labelbottom=row == len(layers) - 1, labeltop=row == 0 and curtain)
     panels[0].set_xlabel(date_label(*view["xlim_s"]))
-    return top, wind_rows, waypoint_texts
+    return top, wind_rows, waypoint_texts, adiabats
 
 
 def render(layers, view, notes, out):
@@ -661,7 +731,7 @@ def render(layers, view, notes, out):
         tmp = out.with_name(f"{out.stem}.{os.getpid()}.tmp.png")
         try:
             wind = wind_layout(layers, view)
-            top, wind_rows, waypoint_texts = draw_rows(fig, layers, view, wind)
+            top, wind_rows, waypoint_texts, adiabats = draw_rows(fig, layers, view, wind)
             top.set_xlim(seconds_to_num(view["xlim_s"][0]), seconds_to_num(view["xlim_s"][1]))
             top.set_ylim(*view["zlim_km"])
             top.xaxis_date()
@@ -671,12 +741,12 @@ def render(layers, view, notes, out):
             corner = corner_axes(fig, cells)
             if notes and not corner:
                 add_note(top, " | ".join(notes))
-            if wind_rows or waypoint_texts:
-                renderer = freeze_layout(fig)
-                arrange_waypoint_labels(waypoint_texts, renderer)
-                finish_wind_panels([ax for ax, _ in wind_rows], renderer)
-                if corner:
-                    fill_corner(fig, corner, notes, view, renderer)
+            renderer = freeze_layout(fig)
+            arrange_waypoint_labels(waypoint_texts, renderer)
+            finish_wind_panels([ax for ax, _ in wind_rows], renderer)
+            arrange_adiabat_labels(adiabats, renderer)
+            if corner:
+                fill_corner(fig, corner, notes, view, renderer)
             out.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(tmp, dpi=DPI, facecolor="w")
             os.replace(tmp, out)
