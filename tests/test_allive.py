@@ -63,8 +63,6 @@ def test_flight_plan_to_track(tmp_path):
     assert np.all(np.diff(planned["time"]) > 0)
     assert (planned["lon"][-1], planned["lat"][-1]) == pytest.approx(WAYPOINTS[-1][:2])
     plan_data = track.read_flight_plan(plan)
-    assert track.waypoint_labels(plan_data) == ["EDMO", "1", "2", "3", "4", "5", "6", "EDMO"]
-    assert track.waypoint_labels({"name": ["MAH", "5000N01150E", "4730N01610E"]}) == ["MAH", "1", "2"]
     kml = tmp_path / "plan.kml"
     kml.write_text(KML.format("\n".join(KML_POINT.format(*point) for point in KML_POINTS)))
     route = track.read_flight_plan(kml)
@@ -93,7 +91,7 @@ def test_flight_plan_to_track(tmp_path):
     assert marks["label"][:flown.sum()] == ["1", "2", "3", "4", "5", "6"]
     assert marks["time"][flown] == pytest.approx(expected[1:7], abs=120.0)
     ahead = expected > fixes["time"][-1]
-    assert marks["label"][flown.sum():] == [n for n, a in zip(track.waypoint_labels(plan_data), ahead) if a]
+    assert marks["label"][flown.sum():] == [str(k) for k in np.flatnonzero(ahead)]
     assert marks["time"][~flown] == pytest.approx(expected[ahead], abs=60.0)
     places = np.c_[plan_data["lon"], plan_data["lat"]][np.r_[1:7, np.flatnonzero(ahead)]]
     assert np.c_[marks["lon"], marks["lat"]] == pytest.approx(places, abs=0.05)

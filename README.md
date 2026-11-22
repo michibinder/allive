@@ -125,18 +125,18 @@ Further options of `plot`:
     35 degrees above 7 km altitude, where turns within 10 minutes count as one.
   - Planned waypoints are grey. They are shown only ahead of the aircraft, at times estimated from the
     progress along the plan.
-  - Labels: a planned waypoint carries its name, or its number counted from 0 if it has none, as in the
-    Mission Support System. A name that only spells out coordinates, such as 5000N01150E, counts as
-    none. A turn within 30 km of a planned waypoint is that waypoint; any other turn
-    is "•". Without a flight plan the turns are numbered 1, 2, ...
+  - Labels: a planned waypoint carries its number in the flight plan, counted from 0 as in the
+    Mission Support System, never its name. A turn within 30 km of a planned waypoint is that
+    waypoint; any other turn is "•". Without a flight plan the turns are numbered 1, 2, ...
   - Labels that would overlap the previous one are hidden, the ticks and lines stay.
 - The corner right of the wind rows gives the take-off time and the name of the flight plan and, while
   the IFS is drawn, its run. A line wider than the corner gets a smaller font, down to 5 pt. Below the
   lines is a sketch of the flight in longitude and latitude at equal distances, without a map: the
   route of the flight plan grey, the measured track black, every waypoint mark of the flight with its
-  label and colour from the time axis, and the aircraft symbol at the cursor. It shows where each label
-  of the time axis lies on the route. The corner takes no room from the panels. Without wind rows the
-  lines are joined into one line above the top panel, and there is no sketch.
+  label and colour from the time axis, and the aircraft symbol at the cursor. As on the time axis, a
+  label that would overlap one shown before it is left out, so not every label of the time axis appears
+  in the sketch. The corner takes no room from the panels. Without wind rows the lines are joined into
+  one line above the top panel, and there is no sketch.
 
 ## Live files
 

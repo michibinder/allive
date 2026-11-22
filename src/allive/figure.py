@@ -396,21 +396,29 @@ def freeze_layout(fig):
     return fig.canvas.get_renderer()
 
 
+def hide_overlapping(texts, boxes, renderer):
+    """Hide every text whose box lies within WAYPOINT_GAP_PT of the box of a text kept before it."""
+    gap = renderer.points_to_pixels(WAYPOINT_GAP_PT)
+    kept = []
+    for text, box in zip(texts, boxes):
+        if any(box.overlaps(other.padded(gap)) for other in kept):
+            text.set_visible(False)
+        else:
+            kept.append(box)
+
+
 def arrange_waypoint_labels(labels, renderer):
     """Move every waypoint label that sticks out of its panel inside it, then hide those within
-    WAYPOINT_GAP_PT of the previous visible one."""
+    WAYPOINT_GAP_PT of a visible one before them."""
     gap = renderer.points_to_pixels(WAYPOINT_GAP_PT)
-    previous = None
+    boxes = []
     for text in labels:
         frame, limits = text.axes.bbox, text.axes.get_xlim()
         box = text.get_bbox_patch().get_window_extent(renderer)
         shift = max(frame.x0 + gap - box.x0, 0.0) + min(frame.x1 - gap - box.x1, 0.0)
         text.set_x(text.get_position()[0] + shift * (limits[1] - limits[0]) / frame.width)
-        box = box.translated(shift, 0.0)
-        if previous is not None and box.overlaps(previous.padded(gap)):
-            text.set_visible(False)
-        else:
-            previous = box
+        boxes.append(box.translated(shift, 0.0))
+    hide_overlapping(labels, boxes, renderer)
 
 
 def finish_wind_panels(axes, renderer):
@@ -636,8 +644,8 @@ def text_box(text, renderer):
 
 
 def draw_sketch(fig, box, view, renderer):
-    """Planned route (grey), measured track (black), all waypoint marks and the aircraft at the cursor in
-    longitude and latitude at equal distances, at the top of a figure box and inset so no text sticks out."""
+    """Plan (grey), measured track (black), waypoint labels clear of earlier ones and the aircraft at the
+    cursor in longitude and latitude at equal distances, at the top of a figure box inset to fit all text."""
     paths = [(path, measured) for path, measured in ((view["plan"], False), (view["fixes"], True))
              if path is not None]
     if not paths:
@@ -646,17 +654,19 @@ def draw_sketch(fig, box, view, renderer):
     ax.axis("off")
     for path, measured in paths:
         ax.plot(path["lon"], path["lat"], color=WAYPOINT_COLORS[measured], lw=SKETCH_LW)
-    marks, texts = view["waypoints"], []
+    marks, labels, icon = view["waypoints"], [], []
     for lon, lat, label, measured in zip(marks["lon"], marks["lat"], marks["label"], marks["measured"]):
-        texts.append(waypoint_label(ax, (lon, lat), label, measured, SKETCH_FONTSIZE))
+        labels.append(waypoint_label(ax, (lon, lat), label, measured, SKETCH_FONTSIZE))
     if view["position"] is not None:
-        texts.append(ax.text(view["position"]["lon"], view["position"]["lat"], AIRCRAFT_ICON,
-                             **SKETCH_ICON_KW))
+        icon.append(ax.text(view["position"]["lon"], view["position"]["lat"], AIRCRAFT_ICON,
+                            **SKETCH_ICON_KW))
     ax.margins(0.0)
     ax.set_aspect(1.0 / np.cos(np.radians(np.mean(ax.get_ylim()))), adjustable="box", anchor="N")
-    sizes = [text_box(text, renderer).size for text in texts] or [(0.0, 0.0)]
+    sizes = [text_box(text, renderer).size for text in [*labels, *icon]] or [(0.0, 0.0)]
     half = (np.max(sizes, axis=0) / 2.0 + renderer.points_to_pixels(SKETCH_PAD_PT)) / fig.bbox.size
     ax.set_position(box.padded(-half[0], -half[1]))
+    ax.apply_aspect()
+    hide_overlapping(labels, [text_box(text, renderer) for text in labels], renderer)
 
 
 def fill_corner(fig, axes, notes, view, renderer):

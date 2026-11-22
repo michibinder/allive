@@ -1,4 +1,3 @@
-import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -23,7 +22,6 @@ MIN_TURN_DEG = 35.0
 MIN_TURN_ALTITUDE_M = 7000.0
 TURN_MERGE_S = 600.0
 UNPLANNED_LABEL = "•"
-COORDINATE_NAME = re.compile(r"\d{2,4}(\.\d+)?[NS]\d{3,5}(\.\d+)?[EW]")
 FLIGHT_PLAN_SUFFIXES = (".ftml", ".kml")
 
 
@@ -67,10 +65,8 @@ def read_flight_plan(path):
 
 
 def waypoint_labels(plan):
-    """Label of every waypoint as the Mission Support System shows it: its name, else its index; a name
-    that only spells out coordinates counts as none."""
-    return [str(index) if not name or COORDINATE_NAME.fullmatch(name) else name
-            for index, name in enumerate(plan["name"])]
+    """Label of every waypoint as the Mission Support System numbers it: its index, counted from 0."""
+    return [str(index) for index in range(len(plan["name"]))]
 
 
 def leg_geometry(plan):
@@ -223,9 +219,9 @@ def waypoint_marks(plan, fixes, progress, departure_s, speed_ms):
         labels = [str(k + 1) for k in range(turns["time"].size)]
         extra, measured = empty, np.array([], bool)
     else:
-        names = waypoint_labels(plan)
+        numbers = waypoint_labels(plan)
         belongs = match_plan(turns, plan)
-        labels = [names[k] if k >= 0 else UNPLANNED_LABEL for k in belongs]
+        labels = [numbers[k] if k >= 0 else UNPLANNED_LABEL for k in belongs]
         times = route_times(leg_geometry(plan)[2], progress, departure_s, speed_ms)
         index = np.arange(times.size)
         free = ~np.isin(index, belongs)
@@ -234,7 +230,7 @@ def waypoint_marks(plan, fixes, progress, departure_s, speed_ms):
         newest = -np.inf if fixes is None else fixes["time"][-1]
         ahead = free & ~passed & (index > flown) & (times > newest)
         shown = np.flatnonzero(passed | ahead)
-        labels += [names[k] for k in shown]
+        labels += [numbers[k] for k in shown]
         extra = {"time": times[shown], **{key: plan[key][shown] for key in MARK_KEYS[1:]}}
         measured = passed[shown]
     marks = {key: np.concatenate([turns[key], extra[key]]) for key in MARK_KEYS}
