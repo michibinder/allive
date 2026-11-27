@@ -88,7 +88,7 @@ Further options of `plot`:
   rows show 20–85 km altitude unless `--zlim` is given.
 - The rows T, T′ and w are curtains: a time–height panel, a narrow panel with the profiles at the
   cursor (IFS green, ALIMA red), and a colorbar. IFS is drawn first and ALIMA on top of it. T′ is the temperature after a
-  5th-order Butterworth high-pass in the vertical with a cutoff of 20 km, for ALIMA and IFS alike.
+  5th-order Butterworth high-pass in the vertical with a cutoff of 15 km, for ALIMA and IFS alike.
   Its colour scale is logarithmic: one colour per doubling from 1 to 32 K, white below 1 K.
 - The colour scales are fixed, and the x ranges of the profile panels equal them: T 180–300 K, T′ ±32 K,
   w ±4 m/s. Figures of different flights therefore compare directly, and the axes do not change when
@@ -99,7 +99,8 @@ Further options of `plot`:
   apart over its full width: from 60 and 50 km at its right edge (300 K) up to 72.2 and 62.2 km at its
   left edge (180 K). The upper line has a label that runs along it, above its lower-right end, or below
   its upper-left end when fewer profiles cross it there. The label lies under the profiles.
-- In a row that shows measurements over the IFS, faded grey contour lines keep the IFS field visible:
+- Every row with an IFS curtain has faded grey contour lines of the IFS field, with or without
+  measurements, so the IFS stays visible under the measurements and an IFS-only figure looks the same:
   every 10 K for T, 1 K for T′ and 0.2 m/s for w, solid for positive and dashed for negative values.
   A line of the notes names these steps. Left of the cursor, the times of the profiles with valid values
   show only the measurement colours under the contour lines: there the IFS colours are left out over the

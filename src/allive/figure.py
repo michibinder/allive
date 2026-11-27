@@ -160,8 +160,8 @@ def hide_under_measurements(ax, curtain, view):
 
 
 def has_contours(spec, panel):
-    """True for a row that shows measurements over an IFS curtain and so draws the IFS contour lines."""
-    return "contours" in spec and "IFS" in panel and "ALIMA" in panel
+    """True for a row with an IFS curtain, with or without measurements, which draws the IFS contour lines."""
+    return "contours" in spec and "IFS" in panel
 
 
 def contour_key(layers):

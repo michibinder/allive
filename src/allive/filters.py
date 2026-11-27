@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import signal
 
-VERT_CUTOFF_KM = 20.0
+VERT_CUTOFF_KM = 15.0
 BW_ORDER = 5
 MIN_FILTER_POINTS = 10
 

@@ -2,6 +2,7 @@ import datetime as dt
 import importlib
 import os
 import signal
+import socket
 import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +23,7 @@ RUN_LAG_HOURS = 7
 BASE_CYCLE_HOURS = 12
 STEP_SUMMARY_MAX_CHARS = 30
 MARS_REQUESTS_PATH = "services/mars/requests"
+DOWNLOAD_SOCKET_TIMEOUT_S = 300.0
 
 
 def floor_cycle(t, hours):
@@ -300,6 +302,7 @@ def fetch(client, req, target):
 
 def download(cfg):
     """Run the MARS requests of the configured download, then convert the GRIB files."""
+    socket.setdefaulttimeout(DOWNLOAD_SOCKET_TIMEOUT_S)
     try:
         for name in OPTIONAL_PACKAGES:
             importlib.import_module(name)
