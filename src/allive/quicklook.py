@@ -175,7 +175,7 @@ def process(payloads, args):
     cursor_s = cursor_time(args.time, xlim_s, latest, track) if has_data else None
     aircraft = track_point(fixes if track is None else track, cursor_s)
     view = {"xlim_s": xlim_s, "zlim_km": tuple(args.zlim), "cursor_s": cursor_s,
-            "aircraft_km": aircraft and aircraft["alt"] / 1000.0, "waypoints": waypoints, "plan": plan,
+            "aircraft_km": aircraft and aircraft["alt"] / 1000.0, "waypoints": waypoints, "plan": planned,
             "fixes": fixes, "tp_filter": args.tp_filter, "position": track_point(fixes, cursor_s)}
     path = render(layers, view, note + contour_key(layers), output_path(args, stamp))
     log_utc(f"saved {path}")

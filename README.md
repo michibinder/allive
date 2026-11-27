@@ -136,8 +136,9 @@ Further options of `plot`:
 - The corner right of the wind rows gives the take-off time and the name of the flight plan and, while
   the IFS is drawn, its run. A line wider than the corner gets a smaller font, down to 5 pt. Below the
   lines is a sketch of the flight in longitude and latitude at equal distances, without a map: the
-  route of the flight plan grey, the measured track black, every waypoint mark of the flight with its
-  label and colour from the time axis, and the aircraft symbol at the cursor. As on the time axis, a
+  route of the flight plan grey, along the great circles between its waypoints as flown, the measured
+  track black, every waypoint mark of the flight with its label and colour from the time axis, and the
+  aircraft symbol at the cursor. As on the time axis, a
   label that would overlap one shown before it is left out, so not every label of the time axis appears
   in the sketch. The corner takes no room from the panels. Without wind rows the lines are joined into
   one line above the top panel, and there is no sketch.
