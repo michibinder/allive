@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from allive.figure import FIELDS, cell_edges, contour_key, finite_profiles, render
-from allive.filters import vertical_primes
+from allive.filters import DEFAULT_TP_FILTER, TP_FILTERS
 from allive.ifs import downloaded_config, flight_config, virtual_curtains
 from allive.mars import netcdf_files
 from allive.paths import figure_dir
@@ -25,20 +25,20 @@ DEFAULT_WATCH_S = 60.0
 DEFAULT_PANELS = ("t", "tp", "w", "u", "v")
 
 
-def to_primes(curtain):
-    """The curtain with its data replaced by the vertical high-pass T' (short profiles blanked)."""
-    return {**curtain, "data": vertical_primes(curtain["data"], curtain["dz"])}
+def to_primes(curtain, tp_filter, mark_s):
+    """The curtain with its data replaced by T' of the chosen filter; mark_s are the waypoint times."""
+    return {**curtain, "data": TP_FILTERS[tp_filter]["primes"](curtain, mark_s)}
 
 
-def panel_layers(curtains, ifs, panels):
+def panel_layers(curtains, ifs, panels, tp_filter, mark_s):
     """{panel: {source: curtain}} of the IFS and ALIMA curtains with valid values each panel draws,
-    T' where asked."""
+    T' of the chosen filter where asked."""
     layers = {}
     for key in panels:
         spec = FIELDS[key]
         sources = {"IFS": ifs[IFS_VARIABLES[spec["file"]]] if ifs else None,
                    "ALIMA": curtains[spec["file"]]}
-        shown = {source: to_primes(curtain) if spec["primes"] else curtain
+        shown = {source: to_primes(curtain, tp_filter, mark_s) if spec["primes"] else curtain
                  for source, curtain in sources.items() if curtain is not None}
         layers[key] = {source: curtain for source, curtain in shown.items()
                        if np.isfinite(curtain["data"]).any()}
@@ -139,11 +139,14 @@ def flight_data(args, plan, planned, fixes, progress):
 
 
 def output_path(args, stamp):
-    """Figure path: one per flight plan and departure, else one per measured flight."""
+    """Figure path: one per flight plan and departure, else one per measured flight; a T' filter other
+    than the default adds its name."""
     if args.flight:
         stem = f"{Path(args.flight).stem}_{utc_datetime(args.departure):%Y%m%d-%H%M}"
-        return figure_dir() / f"allive_{stem}.png"
-    return figure_dir() / f"allive_{stamp or 'nodata'}.png"
+    else:
+        stem = stamp or "nodata"
+    suffix = "" if args.tp_filter == DEFAULT_TP_FILTER else f"_{args.tp_filter}"
+    return figure_dir() / f"allive_{stem}{suffix}.png"
 
 
 def process(payloads, args):
@@ -165,7 +168,7 @@ def process(payloads, args):
     progress = route_progress(plan, fixes, args.departure, args.speed) if plan and fixes else None
     track, ifs, note = flight_data(args, plan, planned, fixes, progress)
     waypoints = waypoint_marks(plan, fixes, progress, args.departure, args.speed)
-    layers = panel_layers(curtains, ifs, args.panels)
+    layers = panel_layers(curtains, ifs, args.panels, args.tp_filter, waypoints["time"])
     latest = newest_profile(parsed)
     xlim_s = time_limits(measured_span(curtains), track, args.hours)
     has_data = any(layers.values()) or latest is not None
@@ -173,7 +176,7 @@ def process(payloads, args):
     aircraft = track_point(fixes if track is None else track, cursor_s)
     view = {"xlim_s": xlim_s, "zlim_km": tuple(args.zlim), "cursor_s": cursor_s,
             "aircraft_km": aircraft and aircraft["alt"] / 1000.0, "waypoints": waypoints, "plan": plan,
-            "fixes": fixes, "position": track_point(fixes, cursor_s)}
+            "fixes": fixes, "tp_filter": args.tp_filter, "position": track_point(fixes, cursor_s)}
     path = render(layers, view, note + contour_key(layers), output_path(args, stamp))
     log_utc(f"saved {path}")
 

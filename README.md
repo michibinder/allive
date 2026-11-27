@@ -75,6 +75,7 @@ Further options of `plot`:
 | option | effect |
 |---|---|
 | `--panels t tp w u v` | rows from top to bottom (default: all five) |
+| `--tp-filter butterworth\|leg-mean` | how T′ is computed: Butterworth high-pass (default) or the mean profile of each leg removed; the figure then gets the file name suffix `_leg-mean` |
 | `--hours H` | only the last H hours |
 | `--zlim A B` | altitude range in km (default: 20 85) |
 | `--time HH:MM` or ISO | cursor and profile time (default: newest profile, else take-off + 30 min) |
@@ -87,9 +88,11 @@ Further options of `plot`:
   the track) and ends at the end of the track or at the newest such profile, whichever is later. All
   rows show 20–85 km altitude unless `--zlim` is given.
 - The rows T, T′ and w are curtains: a time–height panel, a narrow panel with the profiles at the
-  cursor (IFS green, ALIMA red), and a colorbar. IFS is drawn first and ALIMA on top of it. T′ is the temperature after a
-  5th-order Butterworth high-pass in the vertical with a cutoff of 15 km, for ALIMA and IFS alike.
-  Its colour scale is logarithmic: one colour per doubling from 1 to 32 K, white below 1 K.
+  cursor (IFS green, ALIMA red), and a colorbar. IFS is drawn first and ALIMA on top of it. T′ is the
+  temperature after a 5th-order Butterworth high-pass in the vertical with a cutoff of 15 km, for ALIMA
+  and IFS alike. With `--tp-filter leg-mean`, T′ is instead the temperature minus the mean profile of
+  its leg, where the waypoint marks split each curtain into legs, again for ALIMA and IFS alike. Its
+  colour scale is logarithmic: one colour per doubling from 1 to 32 K, white below 1 K.
 - The colour scales are fixed, and the x ranges of the profile panels equal them: T 180–300 K, T′ ±32 K,
   w ±4 m/s. Figures of different flights therefore compare directly, and the axes do not change when
   the measurements come in. A profile that leaves the range runs off the panel edge, and one wholly

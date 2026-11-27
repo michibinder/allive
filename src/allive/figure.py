@@ -15,7 +15,7 @@ from matplotlib.transforms import Affine2D, Bbox, IdentityTransform, offset_copy
 from scipy.optimize import isotonic_regression
 
 from allive import style
-from allive.filters import VERT_CUTOFF_KM
+from allive.filters import TP_FILTERS
 from allive.utc import time_clusters, utc_datetime
 
 TEMP_CLIM = (180.0, 300.0)
@@ -88,7 +88,6 @@ FIELDS = {
           "cmap": TEMP_CMAP, "clim": TEMP_CLIM, "step": 20.0, "primes": False, "zero_line": False,
           "adiabat": True, "curtain": True, "contours": (10.0, "K (T)")},
     "tp": {"file": "T.txt",
-           "label": rf"$\mathbf{{T'}}$ ($\boldsymbol{{\lambda_z}} <$ {VERT_CUTOFF_KM:.0f} km)",
            "cbar": r"$T'$ / K", "cmap": PERT_CMAP, "clim": (PERT_LEVELS[0], PERT_LEVELS[-1]),
            "levels": PERT_LEVELS, "cbar_ticks": PERT_CBAR_TICKS, "step": 16.0,
            "primes": True, "zero_line": False, "adiabat": False, "curtain": True,
@@ -702,7 +701,8 @@ def draw_row(panels, key, panel, view, wind):
     else:
         draw_wind_row(panels[0], wind["rows"][key], wind, spec, key == wind["legend_row"])
     draw_cursor(panels[0], view)
-    style.add_corner_label(panels[0], spec["label"], x=CURTAIN_LABEL_X)
+    label = TP_FILTERS[view["tp_filter"]]["label"] if spec["primes"] else spec["label"]
+    style.add_corner_label(panels[0], label, x=CURTAIN_LABEL_X)
     panels[0].set_ylabel("altitude / km")
     return adiabats
 

@@ -35,4 +35,4 @@ allive = ["*.mplstyle", "*.csv"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-filterwarnings = ["error::UserWarning"]
+filterwarnings = ["error::UserWarning", "error::RuntimeWarning"]

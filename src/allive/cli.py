@@ -5,6 +5,7 @@ from xml.etree.ElementTree import ParseError
 
 from allive import ifs, mars, quicklook, track
 from allive.figure import FIELDS
+from allive.filters import DEFAULT_TP_FILTER, TP_FILTERS
 from allive.stream import SOURCE_URL
 from allive.utc import iso_seconds
 
@@ -66,6 +67,9 @@ def add_plot_parser(commands):
                    help="altitude limits in km (default: {:g} {:g})".format(*quicklook.DEFAULT_ZLIM_KM))
     p.add_argument("--panels", nargs="+", choices=list(FIELDS), default=quicklook.DEFAULT_PANELS,
                    help="panel rows from top to bottom (t, tp, w, u, v)")
+    p.add_argument("--tp-filter", choices=list(TP_FILTERS), default=DEFAULT_TP_FILTER,
+                   help="how T' is computed: vertical Butterworth high-pass, or the mean profile of each "
+                   "leg between two waypoints removed (default: %(default)s)")
     p.add_argument("--above-aircraft", action="store_true",
                    help="height grid starts at each profile's aircraft altitude, not at sea level")
     p.add_argument("--flight", type=readable_plan, metavar="PLAN",

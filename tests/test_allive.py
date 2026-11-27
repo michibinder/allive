@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from allive import cli, ifs, levels, mars, stream, track
+from allive import cli, filters, ifs, levels, mars, stream, track
 from allive.figure import spread_centres, wind_groups
 from allive.utc import time_clusters
 
@@ -191,8 +191,8 @@ def write_ifs(cfg):
 
 
 def test_pipeline_and_levels(tmp_path, monkeypatch, capsys):
-    """The plot command writes one figure with the IFS layer; model levels of an isothermal column are
-    hydrostatic."""
+    """The plot command writes one figure per T' filter with the IFS layer, leg means split at the marks;
+    model levels of an isothermal column are hydrostatic."""
     monkeypatch.setenv("ALLIVE_DATA", str(tmp_path))
     plan = write_plan(tmp_path / "plan.ftml")
     planned = track.planned_flight(plan, DEPARTURE_S, track.DEFAULT_SPEED_MS)
@@ -208,8 +208,13 @@ def test_pipeline_and_levels(tmp_path, monkeypatch, capsys):
             for k in range(3))
         (source / name).write_bytes(lines)
     cli.main(["plot", str(source), "--flight", str(plan), "--departure", DEPARTURE])
-    assert len(list((tmp_path / "figures").glob("*.png"))) == 1
+    cli.main(["plot", str(source), "--flight", str(plan), "--departure", DEPARTURE,
+              "--tp-filter", "leg-mean", "--panels", "tp"])
+    assert len(list((tmp_path / "figures").glob("*.png"))) == 2
     assert "IFS" not in capsys.readouterr().out
+    primes = filters.leg_mean_primes(np.array([[1.0, np.nan], [3.0, np.nan], [5.0, 2.0]]),
+                                     np.array([0.0, 1.0, 2.0]), np.array([2.0]))
+    assert np.allclose(primes, [[-1.0, np.nan], [1.0, np.nan], [0.0, 0.0]], equal_nan=True)
     ds = ifs.open_ifs(*files).isel(time=[0], latitude=[0], longitude=[0]).copy(deep=True)
     z = np.arange(0.0, 60001.0, 1000.0)
     result = levels.on_heights(ds, levels.coefficients(), z, ("t", "p"), "geom_height")
